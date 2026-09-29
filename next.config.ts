@@ -12,4 +12,6 @@ const nextConfig: NextConfig = {
 
 export default withNextIntl(nextConfig);
 
-initOpenNextCloudflareForDev();
+if (process.env.NODE_ENV === "development") {
+  initOpenNextCloudflareForDev();
+}

@@ -1,6 +1,6 @@
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { memoBaseClient, getMemobaseUser, clearMemobaseUser } from "@/utils/memobase/client";
 
 /**
  * 获取项目用户
@@ -29,7 +29,11 @@ export async function GET(req: Request) {
  */
 export async function DELETE() {
   try {
-    await (await memoBaseClient()).deleteUser(await getMemobaseUser());
+    const deleted = await (await memoBaseClient()).deleteUser(await getMemobaseUser());
+    if (!deleted) {
+      return createApiError("删除失败：Memoia 未确认删除", 502);
+    }
+    await clearMemobaseUser();
   } catch (error: unknown) {
     console.error(error);
     return createApiError("删除失败", 500);

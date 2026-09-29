@@ -1,105 +1,30 @@
-<div align="center">
-  <h1>Memobase Inspector</h1>
-  <p>
-    	<img src="https://img.shields.io/badge/Memobase-Inspector-blue">
-      <img src="https://img.shields.io/badge/license-MIT-green">
-  </p>
-  <p>
-    <a href="https://app.memobase.io/inspector" > 
-    	<img style="border-radius: 12px; width: 700px;" src="https://github.com/user-attachments/assets/42ad239f-8021-4319-a933-5298dfd45615">
-    </a>
-  </p>
-</div>
+# Memoia Inspector
 
-A modern, feature-rich dashboard application built with Next.js 15 and React 19, designed for efficient management and analysis of MemoBase data. The project supports internationalization and cloud deployment.
+Memoia Inspector is a fork of [Memobase Inspector](https://github.com/memodb-io/memobase-inspector). It keeps the upstream project-switching UI, user/profile/event management, and chat Playground. The original Memobase TypeScript SDK and HTTP contract remain in use; this fork does not replace the SDK.
 
-## Features
+The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a separate Apache-2.0 project. Deployment of this admin UI should be protected by an access layer: the project token entered in the UI is still required to access a Memoia project, but is not a substitute for authenticating the human administrator.
 
-- 🚀 Built with Next.js 15 and React 19
-- 🌐 Internationalization with next-intl
-- 🎨 Modern UI components using Radix UI
-- 📊 Data visualization (e.g., Recharts)
-- 🌙 Dark mode support (next-themes)
-- 🔒 Authentication with Supabase
-- 💳 Payment integration with Stripe
-- 🎯 State management with Zustand
-- 🎨 Styled with Tailwind CSS
-- 🚢 Cloudflare deployment support
+## Development
 
-## Prerequisites
+Use Node.js 24 LTS and pnpm 10.12.4:
 
-- Node.js (Latest LTS version recommended)
-- pnpm (Package manager)
-- Cloudflare account (for deployment)
-
-## Getting Started
-
-1. Clone the repository:
 ```bash
-git clone [repository-url]
-cd memobase-inspector
-```
-
-2. Install dependencies:
-```bash
-pnpm install
-```
-
-3. Set up environment variables:
-Create a `.env.local` file in the root directory and add the required environment variables.
-
-4. Run the development server:
-```bash
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to see the result.
+The container image is built for the domain root path and same-origin API calls. An alternate Next.js `basePath` is a **build-time** choice and needs a different image; changing a server `.env` does not alter an already-built image.
 
-## Available Scripts
+The Playground calls a model independently of Memoia. Configure `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` at runtime. Do not put the key in the repository or an image build argument. Set the Memoia project origin and Bearer token through the Inspector settings page. Existing upstream Cloudflare Worker commands are retained for compatibility, but the deployment below uses Docker; do not run the upstream `wrangler.jsonc` against its original route.
 
-- `pnpm dev` - Start the development server (Turbopack)
-- `pnpm build` - Build the application
-- `pnpm start` - Start the production server
-- `pnpm lint` - Run ESLint
-- `pnpm preview` - Preview Cloudflare build
-- `pnpm deploy` - Deploy to Cloudflare
-- `pnpm upload` - Upload build to Cloudflare
-- `pnpm cf-typegen` - Generate Cloudflare environment types
-
-## Project Structure
-
-```
-├── app/              # Next.js app directory
-├── components/       # Reusable UI components
-├── lib/              # Utility functions and configurations
-├── types/            # TypeScript type definitions
-├── messages/         # Internationalization messages
-├── hooks/            # Custom React hooks
-├── public/           # Static assets
-├── api/              # API routes
-└── utils/            # Business utilities
-```
-
-## Deployment
-
-Deploy to Cloudflare with a single command:
+## Tests and deployment
 
 ```bash
-pnpm deploy
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
 ```
 
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/your-feature`)
-3. Commit your changes (`git commit -m 'feat: your feature'`)
-4. Push to the branch (`git push origin feature/your-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is based on Memobase and follows its original license. Please refer to the original Memobase repository for license details.
-
-## Support
-
-For support, please open an issue in the repository.
+The test-server installation, GitHub Actions setup, Cloudflare Access boundary, and recovery procedure are in [deploy/README.md](deploy/README.md). The public image is built by Actions from the `test` branch and is deployed by manifest digest; the VPS never builds source code.

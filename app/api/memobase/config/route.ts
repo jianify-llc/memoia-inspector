@@ -27,7 +27,10 @@ export async function PUT(req: Request) {
   }
 
   try {
-    await (await memoBaseClient()).updateConfig(config)
+    const updated = await (await memoBaseClient()).updateConfig(config)
+    if (!updated) {
+      return createApiError("更新失败：Memoia 未接受配置", 502);
+    }
   } catch (e) {
     console.error(e);
     return createApiError("Internal Server Error", 500);

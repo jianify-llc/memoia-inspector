@@ -6,6 +6,12 @@ import { cookies } from "next/headers";
 
 const COOKIE_NAME = "MEMOBASE_INSPECTOR_LOCALE";
 const USER_COOKIE_NAME = "MEMOBASE_INSPECTOR_USER";
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  path: "/",
+};
 
 export const memoBaseClient = async () => {
   const locale = await getLocale()
@@ -21,27 +27,38 @@ export async function getLocale() {
 }
 
 export async function setLocale(url: string, key: string) {
-  const val = `${url}|${key}`;
-  const locale = (await cookies()).get(COOKIE_NAME)?.value || "";
+  const val = `${url.trim()}|${key.trim()}`;
+  const cookieStore = await cookies();
+  const locale = cookieStore.get(COOKIE_NAME)?.value || "";
   if (locale === val) return;
-  (await cookies()).set(COOKIE_NAME, val);
+  cookieStore.delete(USER_COOKIE_NAME);
+  cookieStore.set(COOKIE_NAME, val, cookieOptions);
 }
 
 export async function clearLocale() {
-  (await cookies()).delete(COOKIE_NAME);
+  const cookieStore = await cookies();
+  cookieStore.delete(COOKIE_NAME);
+  cookieStore.delete(USER_COOKIE_NAME);
+}
+
+export async function clearMemobaseUser() {
   (await cookies()).delete(USER_COOKIE_NAME);
 }
 
 export async function getMemobaseUser() {
+  const cookieStore = await cookies();
+  if (!cookieStore.get(COOKIE_NAME)?.value) {
+    cookieStore.delete(USER_COOKIE_NAME);
+    throw new Error("Project credentials are required");
+  }
   const client = await memoBaseClient();
-  const uid = await (await cookies()).get(USER_COOKIE_NAME)?.value || "";
+  const uid = cookieStore.get(USER_COOKIE_NAME)?.value || "";
 
   if (!uid) {
     const newUid = await client.addUser();
-    (await cookies()).set(USER_COOKIE_NAME, newUid);
+    cookieStore.set(USER_COOKIE_NAME, newUid, cookieOptions);
     return newUid;
   }
 
   return uid;
 }
-

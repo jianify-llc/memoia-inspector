@@ -141,7 +141,11 @@ export default function Playground({ project }: { project: Project }) {
                 await fetchEvent();
               }}
               onNewUser={async () => {
-                await deleteUser();
+                const result = await deleteUser();
+                if (result.code !== 0) {
+                  toast.error(result.message || t("getRecordsFailed"));
+                  return;
+                }
                 await fetchProfile();
                 await fetchEvent();
               }}

@@ -1,0 +1,164 @@
+name: Verify and publish Memoia Inspector
+
+on:
+  pull_request:
+    branches: [main, test]
+  push:
+    branches: [main, test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+      - name: Check production dependency advisories
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
+      - name: Check deployment scripts and Compose
+        run: |
+          shellcheck deploy/*.sh
+          cp deploy/runtime.env.example deploy/.env
+          INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -f deploy/compose.yml config --quiet
+      - uses: docker/setup-buildx-action@v3
+      - name: Build AMD64 image without publishing
+        if: ${{ github.ref != 'refs/heads/test' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish-test:
+    if: ${{ github.ref == 'refs/heads/test' && github.event_name != 'pull_request' }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: inspector-image-${{ github.sha }}
+      cancel-in-progress: false
+    outputs:
+      digest: ${{ steps.identity.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Find an existing image for this source commit
+        id: existing
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" >/dev/null 2>&1; then
+            digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build AMD64 and ARM64 once per commit
+        if: ${{ steps.existing.outputs.exists != 'true' }}
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+      - name: Verify architectures, source labels, and anonymous pulls
+        id: identity
+        env:
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest="${EXISTING_DIGEST:-$BUILT_DIGEST}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image="$IMAGE@$digest"
+          docker buildx imagetools inspect "$image" --raw > "$RUNNER_TEMP/inspector-manifest.json"
+          anonymous_config=$(mktemp -d)
+          trap 'rm -rf -- "$anonymous_config"' EXIT
+          for arch in amd64 arm64; do
+            platform_digest=$(jq -er --arg arch "$arch" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate platform") end' "$RUNNER_TEMP/inspector-manifest.json")
+            platform_image="$IMAGE@$platform_digest"
+            DOCKER_CONFIG="$anonymous_config" docker pull --platform "linux/$arch" "$platform_image"
+            docker image inspect "$platform_image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx "$GITHUB_SHA"
+          done
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          printf 'Source: %s\nImage: %s\nPlatforms: amd64, arm64\n' "$GITHUB_SHA" "$image" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-test:
+    if: ${{ vars.INSPECTOR_TEST_DEPLOY_ENABLED == 'true' }}
+    needs: publish-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: memoia-inspector-test-deployment
+      cancel-in-progress: false
+    environment:
+      name: test
+      url: https://test-memoia-inspector.jianify.dev
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+      DIGEST: ${{ needs.publish-test.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update only the Inspector container over direct SSH
+        run: |
+          set -euo pipefail
+          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS DIGEST; do
+            [[ -n "${!name:-}" ]] || { echo "Missing $name" >&2; exit 1; }
+          done
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ && "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$(git ls-remote origin refs/heads/test | cut -f1)" == "$GITHUB_SHA" ]] || {
+            echo 'A newer test commit exists; refusing stale deployment' >&2; exit 1;
+          }
+          key=$(mktemp "$RUNNER_TEMP/inspector-key.XXXXXX")
+          hosts=$(mktemp "$RUNNER_TEMP/inspector-known-hosts.XXXXXX")
+          trap 'rm -f -- "$key" "$hosts"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$hosts"
+          chmod 600 "$key" "$hosts"
+          ssh_opts=(-F /dev/null -i "$key" -p "$DEPLOY_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$hosts" -o ConnectTimeout=15)
+          target="github@$DEPLOY_HOST"
+          candidate="/opt/memoia-inspector/.deploy/candidates/$GITHUB_SHA"
+          # shellcheck disable=SC2029 # Validated candidate path is intentionally expanded on the runner.
+          ssh "${ssh_opts[@]}" "$target" "sudo -n test -f /opt/memoia-inspector/compose.yml && sudo -n install -d -o root -g root -m 700 '$candidate'"
+          # shellcheck disable=SC2029
+          tar -C deploy -cf - compose.yml deploy-inspector.sh runtime.env.example | ssh "${ssh_opts[@]}" "$target" "sudo -n tar -C '$candidate' -xf -"
+          # shellcheck disable=SC2029
+          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' deploy 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
