@@ -15,7 +15,7 @@ pnpm dev
 
 The container image is built for the domain root path and same-origin API calls. An alternate Next.js `basePath` is a **build-time** choice and needs a different image; changing a server `.env` does not alter an already-built image.
 
-The Playground calls a model independently of Memoia. Configure `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` at runtime. Do not put the key in the repository or an image build argument. Set the Memoia project origin and Bearer token through the Inspector settings page. Existing upstream Cloudflare Worker commands are retained for compatibility, but the deployment below uses Docker; do not run the upstream `wrangler.jsonc` against its original route.
+The Playground calls a model independently of Memoia. For the test deployment, store its `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` in the Inspector repository's GitHub `test` Environment; Actions installs a protected runtime copy on the host. Do not put the key in the repository or an image build argument. Set the Memoia project origin and Bearer token through the Inspector settings page. Existing upstream Cloudflare Worker commands are retained for compatibility, but the deployment below uses Docker; do not run the upstream `wrangler.jsonc` against its original route.
 
 ## Tests and deployment
 
@@ -25,6 +25,7 @@ pnpm typecheck
 pnpm lint
 pnpm build
 pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
+docker run --rm --network none -v "$PWD:/work:ro" -w /work python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e bash tests/deploy-inspector.test.sh
 ```
 
 The test-server installation, GitHub Actions setup, Cloudflare Access boundary, and recovery procedure are in [deploy/README.md](deploy/README.md). The public image is built by Actions from the `test` branch and is deployed by manifest digest; the VPS never builds source code.
