@@ -35,17 +35,13 @@ jobs:
           shellcheck deploy/*.sh tests/deploy-inspector.test.sh
           cp deploy/runtime.env.example deploy/.env
           INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -f deploy/compose.yml config --quiet
-      - name: Require patched Next.js before an Online candidate exists
+      - name: Require the reviewed Next.js 15.5.26 Release candidate version
         run: |
           node - <<'NODE'
           const version = require('./package.json').dependencies.next;
-          const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-          if (!match) throw new Error(`Expected an exact stable Next.js version, got ${version}`);
-          const [, major, minor, patch] = match.map(Number);
-          const patched = major > 16 ||
-            (major === 16 && (minor > 3 || (minor === 3 && patch >= 8))) ||
-            (major === 15 && minor === 5 && patch >= 27);
-          if (!patched) throw new Error(`Next.js ${version} predates the September security patch`);
+          if (version !== '15.5.26') {
+            throw new Error(`Release candidate requires the reviewed Next.js 15.5.26 pin, got ${version}`);
+          }
           NODE
 
   publish-candidate:
