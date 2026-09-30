@@ -28,6 +28,8 @@ const request = async <T = any>(
     headers: data.headers,
     credentials: "include",
     body: data.body,
+    // API failures carry the existing { code, message } contract for the UI.
+    ignoreResponseError: true,
     timeout: 1000 * 60 * 5,
   });
 };

@@ -37,7 +37,11 @@ jobs:
         run: |
           shellcheck deploy/*.sh tests/deploy-inspector.test.sh
           cp deploy/runtime.env.example deploy/.env
-          INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -f deploy/compose.yml config --quiet
+          for stage in test online; do
+            project="memoia-inspector-$stage"
+            INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -p "$project" -f deploy/compose.yml config --format json |
+              jq -e --arg project "$project" '.name == $project' >/dev/null
+          done
       - name: Test deployment state transitions
         run: docker run --rm --network none -v "$PWD:/work:ro" -w /work python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e bash tests/deploy-inspector.test.sh
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -175,13 +179,13 @@ jobs:
           # shellcheck disable=SC2029
           tar -C deploy -cf - compose.yml deploy-inspector.sh runtime.env.example | ssh "${ssh_opts[@]}" "$target" "sudo -n tar -C '$candidate' -xf -"
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' init-config"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=test bash '$candidate/deploy-inspector.sh' init-config"
           if [[ -n "$INSPECTOR_OPENAI_API_KEY" || -n "$INSPECTOR_OPENAI_MODEL" ]]; then
             for name in INSPECTOR_OPENAI_API_KEY INSPECTOR_OPENAI_BASE_URL INSPECTOR_OPENAI_MODEL; do
               [[ -n "${!name:-}" ]] || { echo "Incomplete optional Playground config: $name" >&2; exit 1; }
             done
             # shellcheck disable=SC2029 # Secrets travel through SSH standard input, not command arguments.
-            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' install-runtime-env"
+            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=test bash '$candidate/deploy-inspector.sh' install-runtime-env"
           const values = [
             ['OPENAI_API_KEY', process.env.INSPECTOR_OPENAI_API_KEY],
             ['OPENAI_BASE_URL', process.env.INSPECTOR_OPENAI_BASE_URL],
@@ -194,5 +198,5 @@ jobs:
           NODE
           fi
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=test bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
           printf 'Inspector installed locally: source=%s digest=%s; Access acceptance remains separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

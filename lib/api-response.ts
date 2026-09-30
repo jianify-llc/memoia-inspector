@@ -9,7 +9,8 @@ export interface ApiResponse<T = unknown> {
 export function createApiResponse<T>(
   data: T | null = null,
   message: string = '操作成功',
-  code: number = 0
+  code: number = 0,
+  status: number = 200
 ): NextResponse {
   const response: ApiResponse<T> = {
     code,
@@ -17,12 +18,13 @@ export function createApiResponse<T>(
     message
   };
 
-  return NextResponse.json(response);
+  return NextResponse.json(response, { status });
 }
 
 export function createApiError(
   message: string = '操作失败',
   code: number = 1
 ): NextResponse {
-  return createApiResponse(null, message, code);
+  const status = Number.isInteger(code) && code >= 400 && code <= 599 ? code : 500;
+  return createApiResponse(null, message, code, status);
 }

@@ -24,6 +24,7 @@ describe('Test and Online release boundaries', () => {
     expect(testWorkflow.jobs['publish-test'].needs).toContain('verify');
     expect(testWorkflow.jobs['deploy-test'].environment).toMatchObject({ name: 'test' });
     expect(testWorkflow.jobs['deploy-test'].needs).toContain('publish-test');
+    expect(readFileSync(resolve(__dirname, '../.github/workflows/publish.yml'), 'utf8')).toContain('INSPECTOR_STAGE=test bash');
   });
 
   it('prepares a Release candidate before tag promotion and approval', () => {
@@ -33,6 +34,7 @@ describe('Test and Online release boundaries', () => {
     expect(onlineWorkflow.jobs['deploy-online'].needs).toContain('promote-tag');
     expect(onlineWorkflow.jobs['deploy-online'].environment).toMatchObject({ name: 'online' });
     expect(onlineWorkflow.jobs['deploy-online'].if).toContain("startsWith(github.ref, 'refs/tags/v')");
+    expect(readFileSync(resolve(__dirname, '../.github/workflows/deploy-online.yml'), 'utf8')).toContain('INSPECTOR_STAGE=online bash');
     for (const [name, job] of Object.entries(onlineWorkflow.jobs)) {
       if (name !== 'deploy-online') expect(job.environment).toBeUndefined();
     }
