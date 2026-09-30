@@ -19,7 +19,7 @@ if [[ "$mode" == init-config ]]; then
   if [[ ! -e "$root/compose.yml" ]]; then
     install -o root -g root -m 644 "$script_dir/compose.yml" "$root/compose.yml"
   fi
-  echo 'Inspector deployment directories are ready. Install runtime config from the test Environment before init.'
+  echo 'Inspector deployment directories are ready. Optional Playground runtime config can be installed from the test Environment.'
   exit 0
 fi
 if [[ "$mode" == install-runtime-env ]]; then
@@ -87,21 +87,6 @@ run_id=${4:?Expected GitHub Actions run ID}
 [[ "$(sha256sum "$root/compose.yml" | cut -d' ' -f1)" == "$(sha256sum "$script_dir/compose.yml" | cut -d' ' -f1)" ]] || {
   echo 'Compose changed; review it as separate host maintenance before an API update' >&2; exit 1;
 }
-
-# Parse only the three required names. Never source or print a secret dotenv file.
-python3 - "$root/.env" <<'PY'
-import sys
-values = {}
-for line in open(sys.argv[1], encoding="utf-8"):
-    line = line.strip()
-    if not line or line.startswith("#"):
-        continue
-    key, sep, value = line.partition("=")
-    if sep:
-        values[key] = value.strip().strip('"').strip("'")
-if not all(values.get(key) for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL")):
-    sys.exit("Inspector model configuration is incomplete")
-PY
 
 state_dir="$root/.deploy"
 if [[ "$mode" == init && -e "$state_dir/current" ]]; then
