@@ -201,13 +201,13 @@ jobs:
           # shellcheck disable=SC2029
           tar -C deploy -cf - compose.yml deploy-inspector.sh runtime.env.example | ssh "${ssh_opts[@]}" "$target" "sudo -n tar -C '$candidate' -xf -"
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' init-config"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' init-config"
           if [[ -n "$INSPECTOR_OPENAI_API_KEY" || -n "$INSPECTOR_OPENAI_MODEL" ]]; then
             for name in INSPECTOR_OPENAI_API_KEY INSPECTOR_OPENAI_BASE_URL INSPECTOR_OPENAI_MODEL; do
               [[ -n "${!name:-}" ]] || { echo "Incomplete optional Playground config: $name" >&2; exit 1; }
             done
             # shellcheck disable=SC2029 # Runtime values travel through SSH standard input.
-            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' install-runtime-env"
+            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' install-runtime-env"
           const values = [
             ['OPENAI_API_KEY', process.env.INSPECTOR_OPENAI_API_KEY],
             ['OPENAI_BASE_URL', process.env.INSPECTOR_OPENAI_BASE_URL],
@@ -220,5 +220,5 @@ jobs:
           NODE
           fi
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
           printf 'Online container accepted locally: source=%s digest=%s. External Access and management acceptance remain separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

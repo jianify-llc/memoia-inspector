@@ -2,6 +2,8 @@
 
 This is a separate application on the existing Japan test host. It does not restart Memoia, PostgreSQL, Redis, or the host cloudflared service. The test hostname is `test-memoia-inspector.jianify.dev`; the container is reachable on the host only at `127.0.0.1:3001`. The Online workflow is prepared separately but has not been accepted on an Online host.
 
+The versioned deployment script requires `INSPECTOR_STAGE=test` or `online` and passes `-p memoia-inspector-<stage>` to Compose. This overrides the file's legacy `name: memoia-inspector-test` without changing the already installed Test Compose or its project identity. Actions passes the stage explicitly through `sudo -n env`; manual recovery must do the same. An absent or unknown stage fails before the script touches deployment state.
+
 ## One-time operator setup
 
 1. Review the host identity, available memory, port 3001, and the existing cloudflared service. Actions creates `/opt/memoia-inspector` and installs the versioned Compose and deployment script. The server `.env` is root-owned mode 0600 and may leave the optional Playground model key and model name blank. The administrator enters the Memoia project URL and token in the protected UI.

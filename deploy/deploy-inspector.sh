@@ -2,6 +2,8 @@
 set -euo pipefail
 
 mode=${1:?Expected init-config, install-runtime-env, apply, init, deploy, restore-api, or clear-pending}
+stage=${INSPECTOR_STAGE:?Set INSPECTOR_STAGE to test or online}
+[[ "$stage" == test || "$stage" == online ]] || { echo 'Invalid Inspector deployment stage' >&2; exit 2; }
 root=/opt/memoia-inspector
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 [[ "$EUID" == 0 ]] || { echo 'Run via sudo -n' >&2; exit 2; }
@@ -128,7 +130,7 @@ if [[ "$mode" == restore-api ]]; then
 fi
 
 export INSPECTOR_IMAGE="$image"
-compose=(docker compose -f "$root/compose.yml")
+compose=(docker compose -p "memoia-inspector-$stage" -f "$root/compose.yml")
 "${compose[@]}" config --quiet
 if [[ "$mode" == deploy ]]; then
   read -r _ _ current_image accepted_config_sha < "$state_dir/current"

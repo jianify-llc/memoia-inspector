@@ -15,6 +15,7 @@ B_SHA="$(printf 'b%.0s' {1..40})"
 A_IMAGE="ghcr.io/jianify/memoia-inspector@sha256:$(printf 'a%.0s' {1..64})"
 B_IMAGE="ghcr.io/jianify/memoia-inspector@sha256:$(printf 'b%.0s' {1..64})"
 export A_SHA B_SHA A_IMAGE B_IMAGE
+export INSPECTOR_STAGE=test
 export PATH="$fixture/bin:$PATH"
 
 cat > "$fixture/bin/docker" <<'MOCK'
@@ -22,6 +23,12 @@ cat > "$fixture/bin/docker" <<'MOCK'
 set -euo pipefail
 if [[ "$1" == compose ]]; then
   shift
+  if [[ "$1" == -p ]]; then
+    [[ "$2" == "memoia-inspector-$INSPECTOR_STAGE" ]] || exit 2
+    shift 2
+  else
+    exit 2
+  fi
   [[ "$1" == -f ]] && shift 2
   case "$1" in
     config) exit 0 ;;
@@ -80,6 +87,10 @@ assert_current() {
 }
 
 deploy init-config >/dev/null
+INSPECTOR_STAGE=invalid expect_failure deploy init-config
+unset INSPECTOR_STAGE
+expect_failure deploy init-config
+export INSPECTOR_STAGE=test
 [[ "$(stat -c '%u:%g:%a' "$fixture/service/.env")" == 0:0:600 ]]
 grep -Fxq 'OPENAI_API_KEY=' "$fixture/service/.env"
 expect_failure deploy install-runtime-env <<< 'OPENAI_API_KEY=test'
@@ -141,4 +152,6 @@ bash "$fixture/source/deploy-inspector-optional.sh" init-config >/dev/null
 printf 'OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model\n' |
   bash "$fixture/source/deploy-inspector-optional.sh" install-runtime-env >/dev/null
 grep -Fxq 'OPENAI_API_KEY=test' "$fixture/optional-service/.env"
+INSPECTOR_STAGE=online bash "$fixture/source/deploy-inspector-optional.sh" apply "$A_IMAGE" "$A_SHA" 500 >/dev/null
+[[ -f "$fixture/optional-service/.deploy/current" ]]
 echo 'Inspector deployment transitions passed'

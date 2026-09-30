@@ -25,6 +25,7 @@ describe("SDK boolean failure responses", () => {
       method: "PUT",
       body: JSON.stringify({ config: "a: 1" }),
     }));
+    expect(response.status).toBe(502);
     expect((await response.json()).code).toBe(502);
   });
 
@@ -33,12 +34,14 @@ describe("SDK boolean failure responses", () => {
     const response = await deleteProjectUser(new Request("http://localhost/api/memobase/user/u1"), {
       params: Promise.resolve({ uid: "u1" }),
     });
+    expect(response.status).toBe(502);
     expect((await response.json()).code).toBe(502);
   });
 
   it("keeps the playground user after failed deletion", async () => {
     sdk.deleteUser.mockResolvedValue(false);
     const response = await deletePlaygroundUser();
+    expect(response.status).toBe(502);
     expect((await response.json()).code).toBe(502);
     expect(sdk.clearMemobaseUser).not.toHaveBeenCalled();
   });
@@ -46,6 +49,7 @@ describe("SDK boolean failure responses", () => {
   it("clears the playground user only after confirmed deletion", async () => {
     sdk.deleteUser.mockResolvedValue(true);
     const response = await deletePlaygroundUser();
+    expect(response.status).toBe(200);
     expect((await response.json()).code).toBe(0);
     expect(sdk.clearMemobaseUser).toHaveBeenCalledOnce();
   });
