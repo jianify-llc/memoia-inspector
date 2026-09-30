@@ -29,7 +29,7 @@ export default function Config({
   onRefresh,
 }: {
   project: Project;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => void;
 }) {
   const { theme } = useTheme();
   const t = useTranslations("project.config");
@@ -43,22 +43,16 @@ export default function Config({
 
   const handleUpdate = async () => {
     setLoading(true);
-    let saved = false;
     try {
       const res = await updateConfig(defaultConfigYaml);
       if (res.code === 0) {
-        saved = true;
-        await onRefresh();
+        onRefresh();
         toast.success(t("updateSuccess"));
       } else {
         toast.error(res.message || t("updateFailed"));
       }
     } catch {
-      if (saved) {
-        toast.warning(t("updateSavedRefreshFailed"));
-      } else {
-        toast.error(t("updateFailed"));
-      }
+      toast.error(t("updateFailed"));
     } finally {
       setLoading(false);
     }

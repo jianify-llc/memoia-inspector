@@ -6,7 +6,6 @@
   },
   "project": {
     "getProjectsFailed": "get projects failed",
-    "retry": "Retry",
     "tabs": {
       "usage": "Usages",
       "apiKeys": "Auth",
@@ -64,7 +63,6 @@
       },
       "updateSuccess": "Save Success",
       "updateFailed": "Save Failed",
-      "updateSavedRefreshFailed": "Saved, but the latest config could not be loaded. Please refresh to verify.",
       "save": "Save"
     }
   },

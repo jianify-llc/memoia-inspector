@@ -6,7 +6,6 @@
   },
   "project": {
     "getProjectsFailed": "获取实例失败",
-    "retry": "重试",
     "tabs": {
       "apiKeys": "验证",
       "usage": "用量",
@@ -64,7 +63,6 @@
       },
       "updateSuccess": "更新成功",
       "updateFailed": "更新失败",
-      "updateSavedRefreshFailed": "已保存，但读取最新配置失败。请刷新页面确认。",
       "save": "保存"
     }
   },
