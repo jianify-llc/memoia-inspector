@@ -9,6 +9,7 @@ import { Project } from "@/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import ApiKeys from "@/components/project/tabs/api-keys";
 import Users from "@/components/project/tabs/users";
 import Usage from "@/components/project/tabs/usage";
@@ -24,45 +25,58 @@ export default function ProjectPage() {
   const router = useRouter();
   const t = useTranslations("project");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
 
   const fetchProject = useCallback(async () => {
-    try {
-      const res = await getLocale();
-      if (res.length < 2) {
-        router.push("/settings");
-        return;
-      }
-
-      const config = await getConfig();
-      if (config.code !== 0) {
-        toast.error(t("getProjectsFailed"));
-        return;
-      }
-
-      setProject({
-        endpoint_url: res[0],
-        endpoint_token: res[1],
-        config_yaml: config.data || "",
-      });
-    } catch {
-      toast.error(t("getProjectsFailed"));
+    const res = await getLocale();
+    if (res.length < 2) {
+      router.push("/settings");
+      throw new Error("Project credentials are missing");
     }
-  }, [router, t]);
+
+    const config = await getConfig();
+    if (config.code !== 0) {
+      throw new Error(config.message);
+    }
+
+    setProject({
+      endpoint_url: res[0],
+      endpoint_token: res[1],
+      config_yaml: config.data || "",
+    });
+  }, [router]);
+
+  const loadProject = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    setProject(null);
+    try {
+      await fetchProject();
+    } catch {
+      setLoadError(true);
+      toast.error(t("getProjectsFailed"));
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchProject, t]);
 
   useEffect(() => {
-    setLoading(true);
-    setProject(null);
-    fetchProject().finally(() => setLoading(false));
-  }, [fetchProject]);
+    void loadProject();
+  }, [loadProject]);
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
-      {loading || !project ? (
+      {loading ? (
         <div className="space-y-2">
           <Skeleton className="h-[6dvh] w-full" />
           <Skeleton className="h-[4dvh] w-full" />
           <Skeleton className="h-[60dvh] w-full" />
+        </div>
+      ) : loadError || !project ? (
+        <div className="flex flex-col items-start gap-3">
+          <p>{t("getProjectsFailed")}</p>
+          <Button onClick={() => void loadProject()}>{t("retry")}</Button>
         </div>
       ) : (
         <>
