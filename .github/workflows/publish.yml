@@ -18,11 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.12.4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: pnpm
@@ -35,13 +35,15 @@ jobs:
         run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
       - name: Check deployment scripts and Compose
         run: |
-          shellcheck deploy/*.sh
+          shellcheck deploy/*.sh tests/deploy-inspector.test.sh
           cp deploy/runtime.env.example deploy/.env
           INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -f deploy/compose.yml config --quiet
-      - uses: docker/setup-buildx-action@v3
+      - name: Test deployment state transitions
+        run: docker run --rm --network none -v "$PWD:/work:ro" -w /work python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e bash tests/deploy-inspector.test.sh
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build AMD64 image without publishing
         if: ${{ github.ref != 'refs/heads/test' }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64
@@ -64,10 +66,22 @@ jobs:
     outputs:
       digest: ${{ steps.identity.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require the scheduled Next.js security patch before publication
+        run: |
+          node - <<'NODE'
+          const version = require('./package.json').dependencies.next;
+          const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+          if (!match) throw new Error(`Expected an exact stable Next.js version, got ${version}`);
+          const [, major, minor, patch] = match.map(Number);
+          const patched = major > 16 ||
+            (major === 16 && (minor > 3 || (minor === 3 && patch >= 8))) ||
+            (major === 15 && minor === 5 && patch >= 27);
+          if (!patched) throw new Error(`Next.js ${version} predates the scheduled September security patch`);
+          NODE
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -85,7 +99,7 @@ jobs:
       - name: Build AMD64 and ARM64 once per commit
         if: ${{ steps.existing.outputs.exists != 'true' }}
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -128,15 +142,19 @@ jobs:
     environment:
       name: test
       url: https://test-memoia-inspector.jianify.dev
+      deployment: false
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
       DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+      INSPECTOR_OPENAI_API_KEY: ${{ secrets.INSPECTOR_OPENAI_API_KEY }}
+      INSPECTOR_OPENAI_BASE_URL: ${{ secrets.INSPECTOR_OPENAI_BASE_URL }}
+      INSPECTOR_OPENAI_MODEL: ${{ secrets.INSPECTOR_OPENAI_MODEL }}
       DIGEST: ${{ needs.publish-test.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Update only the Inspector container over direct SSH
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install or update Inspector over direct SSH
         run: |
           set -euo pipefail
           for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS DIGEST; do
@@ -157,8 +175,28 @@ jobs:
           target="github@$DEPLOY_HOST"
           candidate="/opt/memoia-inspector/.deploy/candidates/$GITHUB_SHA"
           # shellcheck disable=SC2029 # Validated candidate path is intentionally expanded on the runner.
-          ssh "${ssh_opts[@]}" "$target" "sudo -n test -f /opt/memoia-inspector/compose.yml && sudo -n install -d -o root -g root -m 700 '$candidate'"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n install -d -o root -g root -m 700 /opt/memoia-inspector /opt/memoia-inspector/.deploy /opt/memoia-inspector/.deploy/candidates '$candidate'"
           # shellcheck disable=SC2029
           tar -C deploy -cf - compose.yml deploy-inspector.sh runtime.env.example | ssh "${ssh_opts[@]}" "$target" "sudo -n tar -C '$candidate' -xf -"
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' deploy 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' init-config"
+          if [[ -n "$INSPECTOR_OPENAI_API_KEY" || -n "$INSPECTOR_OPENAI_MODEL" ]]; then
+            for name in INSPECTOR_OPENAI_API_KEY INSPECTOR_OPENAI_BASE_URL INSPECTOR_OPENAI_MODEL; do
+              [[ -n "${!name:-}" ]] || { echo "Incomplete optional Playground config: $name" >&2; exit 1; }
+            done
+            # shellcheck disable=SC2029 # Secrets travel through SSH standard input, not command arguments.
+            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' install-runtime-env"
+          const values = [
+            ['OPENAI_API_KEY', process.env.INSPECTOR_OPENAI_API_KEY],
+            ['OPENAI_BASE_URL', process.env.INSPECTOR_OPENAI_BASE_URL],
+            ['OPENAI_MODEL', process.env.INSPECTOR_OPENAI_MODEL],
+          ];
+          for (const [name, value] of values) {
+            if (!value || /[\r\n\0$#\s'"\\]/.test(value)) throw new Error(`Invalid ${name} secret`);
+            process.stdout.write(`${name}=${value}\n`);
+          }
+          NODE
+          fi
+          # shellcheck disable=SC2029
+          ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          printf 'Inspector installed locally: source=%s digest=%s; Access acceptance remains separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
