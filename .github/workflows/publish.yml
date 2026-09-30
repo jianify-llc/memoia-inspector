@@ -157,7 +157,7 @@ jobs:
       - name: Install or update Inspector over direct SSH
         run: |
           set -euo pipefail
-          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS INSPECTOR_OPENAI_API_KEY INSPECTOR_OPENAI_BASE_URL INSPECTOR_OPENAI_MODEL DIGEST; do
+          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS DIGEST; do
             [[ -n "${!name:-}" ]] || { echo "Missing $name" >&2; exit 1; }
           done
           [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ && "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
@@ -180,8 +180,12 @@ jobs:
           tar -C deploy -cf - compose.yml deploy-inspector.sh runtime.env.example | ssh "${ssh_opts[@]}" "$target" "sudo -n tar -C '$candidate' -xf -"
           # shellcheck disable=SC2029
           ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' init-config"
-          # shellcheck disable=SC2029 # Candidate path is validated locally; secrets travel through SSH standard input.
-          node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' install-runtime-env"
+          if [[ -n "$INSPECTOR_OPENAI_API_KEY" || -n "$INSPECTOR_OPENAI_MODEL" ]]; then
+            for name in INSPECTOR_OPENAI_API_KEY INSPECTOR_OPENAI_BASE_URL INSPECTOR_OPENAI_MODEL; do
+              [[ -n "${!name:-}" ]] || { echo "Incomplete optional Playground config: $name" >&2; exit 1; }
+            done
+            # shellcheck disable=SC2029 # Secrets travel through SSH standard input, not command arguments.
+            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' install-runtime-env"
           const values = [
             ['OPENAI_API_KEY', process.env.INSPECTOR_OPENAI_API_KEY],
             ['OPENAI_BASE_URL', process.env.INSPECTOR_OPENAI_BASE_URL],
@@ -192,6 +196,7 @@ jobs:
             process.stdout.write(`${name}=${value}\n`);
           }
           NODE
+          fi
           # shellcheck disable=SC2029
           ssh "${ssh_opts[@]}" "$target" "sudo -n bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
-          printf 'Inspector installed locally: source=%s digest=%s; Access and Playground acceptance remain separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Inspector installed locally: source=%s digest=%s; Access acceptance remains separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
