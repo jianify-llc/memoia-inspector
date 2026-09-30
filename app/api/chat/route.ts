@@ -5,7 +5,23 @@ import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
 
 export const maxDuration = 30;
 
+const isPlaygroundConfigured = () => Boolean(
+  process.env.OPENAI_API_KEY?.trim() &&
+  process.env.OPENAI_BASE_URL?.trim() &&
+  process.env.OPENAI_MODEL?.trim()
+);
+
+export async function GET() {
+  return Response.json(
+    { enabled: isPlaygroundConfigured() },
+    { headers: { "Cache-Control": "no-store" } }
+  );
+}
+
 export async function POST(req: Request) {
+  if (!isPlaygroundConfigured()) {
+    return new Response("Playground model is not configured", { status: 503 });
+  }
 
   try {
     const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());

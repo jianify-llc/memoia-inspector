@@ -31,9 +31,11 @@ export default function Playground({ project }: { project: Project }) {
   const lastUserMessageRef = useRef<string>("");
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
+  const [playgroundAvailable, setPlaygroundAvailable] = useState<boolean | null>(null);
+  const chatApi = `${process.env["NEXT_PUBLIC_BASE_PATH"] || ""}/api/chat`;
 
   const runtime = useChatRuntime({
-    api: `${process.env["NEXT_PUBLIC_BASE_PATH"] || ""}/api/chat`,
+    api: chatApi,
     onResponse: (response) => {
       if (response.status !== 200) {
         return;
@@ -118,13 +120,38 @@ export default function Playground({ project }: { project: Project }) {
   }, [t]);
 
   useEffect(() => {
-    if (!project) return;
+    let active = true;
+    fetch(chatApi, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const data: { enabled?: boolean } = await response.json();
+        return data.enabled === true;
+      })
+      .catch(() => false)
+      .then((enabled) => {
+        if (active) setPlaygroundAvailable(enabled);
+      });
+    return () => { active = false; };
+  }, [chatApi]);
+
+  useEffect(() => {
+    if (!project || !playgroundAvailable) return;
     const init = async () => {
       await fetchProfile();
       await fetchEvent();
     };
     init();
-  }, [fetchProfile, fetchEvent, project]);
+  }, [fetchProfile, fetchEvent, playgroundAvailable, project]);
+
+  if (playgroundAvailable !== true) {
+    return (
+      <Card>
+        <CardContent role="status">
+          {playgroundAvailable === null ? t("checking") : t("notConfigured")}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="py-0 overflow-hidden">
