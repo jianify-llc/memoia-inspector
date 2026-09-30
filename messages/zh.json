@@ -49,8 +49,6 @@
       "keyTips": "如何在你的项目中使用它？"
     },
     "playground": {
-      "checking": "正在检查演示功能…",
-      "notConfigured": "聊天演示未启用；其他标签中的 Memoia 管理功能不受影响。",
       "getRecordsFailed": "获取记录失败",
       "insertRecordsFailed": "保存记录失败",
       "flashRecordsFailed": "保存记录失败"

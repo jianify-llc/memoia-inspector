@@ -80,9 +80,13 @@ assert_current() {
 }
 
 deploy init-config >/dev/null
-[[ "$(stat -c '%u:%g:%a' "$fixture/service/.env")" == 0:0:600 ]]
-grep -Fxq 'OPENAI_API_KEY=' "$fixture/service/.env"
 expect_failure deploy install-runtime-env <<< 'OPENAI_API_KEY=test'
+expect_failure deploy install-runtime-env <<< $'OPENAI_API_KEY=test#invalid\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model'
+expect_failure deploy install-runtime-env <<< $'OPENAI_API_KEY=test\\invalid\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model'
+[[ "$(stat -c '%u:%g:%a' "$fixture/service/.env")" == 0:0:600 ]]
+printf 'OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model\n' | deploy install-runtime-env >/dev/null
+[[ "$(stat -c '%u:%g:%a' "$fixture/service/.env")" == 0:0:600 ]]
+printf 'OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model\n' | deploy install-runtime-env >/dev/null
 
 export MOCK_FAIL_IMAGE="$B_IMAGE"
 expect_failure deploy apply "$B_IMAGE" "$B_SHA" 100
@@ -93,10 +97,10 @@ deploy clear-pending "$B_SHA" >/dev/null
 unset MOCK_FAIL_IMAGE
 deploy apply "$A_IMAGE" "$A_SHA" 110 >/dev/null
 assert_current 110 "$A_IMAGE"
-[[ "$(grep -c '^OPENAI_API_KEY=$' "$fixture/service/.env")" == 1 ]]
 printf 'OPENAI_API_KEY=rotated\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model\n' | expect_failure deploy install-runtime-env
+grep -Fxq 'OPENAI_API_KEY=test' "$fixture/service/.env"
 cp "$fixture/service/.env" "$fixture/accepted.env"
-printf 'OPENAI_MODEL=out-of-band\n' >> "$fixture/service/.env"
+printf 'OPENAI_API_KEY=out-of-band\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model\n' > "$fixture/service/.env"
 expect_failure deploy apply "$B_IMAGE" "$B_SHA" 190
 assert_current 110 "$A_IMAGE"
 cp "$fixture/accepted.env" "$fixture/service/.env"
@@ -135,10 +139,4 @@ assert_current 301 "$A_IMAGE"
 
 printf '%s\n' "$B_IMAGE" > "$MOCK_STATE/image"
 expect_failure deploy deploy "$B_IMAGE" "$B_SHA" 400
-
-sed "s|root=$fixture/service|root=$fixture/optional-service|" "$fixture/source/deploy-inspector.sh" > "$fixture/source/deploy-inspector-optional.sh"
-bash "$fixture/source/deploy-inspector-optional.sh" init-config >/dev/null
-printf 'OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=test-model\n' |
-  bash "$fixture/source/deploy-inspector-optional.sh" install-runtime-env >/dev/null
-grep -Fxq 'OPENAI_API_KEY=test' "$fixture/optional-service/.env"
 echo 'Inspector deployment transitions passed'

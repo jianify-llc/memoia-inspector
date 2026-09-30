@@ -49,8 +49,6 @@
       "keyTips": "How to use this in your project?"
     },
     "playground": {
-      "checking": "Checking Playground availability…",
-      "notConfigured": "The chat demo is not enabled. Memoia management remains available in the other tabs.",
       "getRecordsFailed": "Failed to get records",
       "insertRecordsFailed": "Failed to save records",
       "flashRecordsFailed": "Failed to update records"
