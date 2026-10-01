@@ -1,0 +1,195 @@
+name: Memoia Inspector · Online
+
+on:
+  push:
+    branches: [release]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  publish-candidate:
+    if: ${{ github.ref == 'refs/heads/release' }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: inspector-release-image-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Locate existing immutable candidate
+        id: existing
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build the Release candidate once
+        if: ${{ steps.existing.outputs.exists != 'true' }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+      - name: Verify candidate identity
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --raw > "$RUNNER_TEMP/manifest.json"
+          digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          anonymous_config=$(mktemp -d)
+          trap 'rm -rf -- "$anonymous_config"' EXIT
+          for arch in amd64 arm64; do
+            platform_digest=$(jq -er --arg arch "$arch" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate platform") end' "$RUNNER_TEMP/manifest.json")
+            DOCKER_CONFIG="$anonymous_config" docker pull --platform "linux/$arch" "$IMAGE@$platform_digest"
+            docker image inspect "$IMAGE@$platform_digest" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx "$GITHUB_SHA"
+          done
+          printf 'Release candidate: source=%s image=%s@%s\n' "$GITHUB_SHA" "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+  promote-tag:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.identity.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Require tag at current Release HEAD
+        run: |
+          [[ "$(git ls-remote origin refs/heads/release | cut -f1)" == "$GITHUB_SHA" ]] || {
+            echo 'Version tag is not at the current release HEAD' >&2; exit 1;
+          }
+      - name: Reuse the verified Release candidate
+        id: identity
+        run: |
+          set -euo pipefail
+          candidate="$IMAGE:sha-$GITHUB_SHA"
+          docker buildx imagetools inspect "$candidate" --raw > "$RUNNER_TEMP/manifest.json"
+          digest=$(docker buildx imagetools inspect "$candidate" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          for arch in amd64 arm64; do
+            platform_digest=$(jq -er --arg arch "$arch" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate platform") end' "$RUNNER_TEMP/manifest.json")
+            docker pull --platform "linux/$arch" "$IMAGE@$platform_digest"
+            docker image inspect "$IMAGE@$platform_digest" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx "$GITHUB_SHA"
+          done
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attach an immutable version tag
+        env:
+          DIGEST: ${{ steps.identity.outputs.digest }}
+        run: |
+          set -euo pipefail
+          version="$IMAGE:$GITHUB_REF_NAME"
+          if docker buildx imagetools inspect "$version" >/dev/null 2>&1; then
+            existing=$(docker buildx imagetools inspect "$version" --format '{{json .Manifest}}' | jq -r .digest)
+            [[ "$existing" == "$DIGEST" ]] || { echo 'Version tag already points to a different image' >&2; exit 1; }
+          else
+            docker buildx imagetools create -t "$version" "$IMAGE@$DIGEST"
+          fi
+          actual=$(docker buildx imagetools inspect "$version" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$actual" == "$DIGEST" ]] || exit 1
+
+  deploy-online:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: promote-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: memoia-inspector-online-deployment
+      cancel-in-progress: false
+    environment:
+      name: online
+      url: https://memoia-inspector.jianify.dev
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+      INSPECTOR_OPENAI_API_KEY: ${{ secrets.INSPECTOR_OPENAI_API_KEY }}
+      INSPECTOR_OPENAI_BASE_URL: ${{ secrets.INSPECTOR_OPENAI_BASE_URL }}
+      INSPECTOR_OPENAI_MODEL: ${{ secrets.INSPECTOR_OPENAI_MODEL }}
+      DIGEST: ${{ needs.promote-tag.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify approval boundary and candidate before SSH
+        run: |
+          set -euo pipefail
+          [[ "$(git ls-remote origin refs/heads/release | cut -f1)" == "$GITHUB_SHA" ]] || {
+            echo 'A newer Release commit exists; refusing stale Online deployment' >&2; exit 1;
+          }
+          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS DIGEST; do
+            [[ -n "${!name:-}" ]] || { echo "Missing online Environment value: $name" >&2; exit 1; }
+          done
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ && "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+      - name: Update only Inspector on the Online host
+        run: |
+          set -euo pipefail
+          key=$(mktemp "$RUNNER_TEMP/inspector-online-key.XXXXXX")
+          hosts=$(mktemp "$RUNNER_TEMP/inspector-online-hosts.XXXXXX")
+          trap 'rm -f -- "$key" "$hosts"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$hosts"
+          chmod 600 "$key" "$hosts"
+          ssh_opts=(-F /dev/null -i "$key" -p "$DEPLOY_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$hosts" -o ConnectTimeout=15)
+          target="github@$DEPLOY_HOST"
+          candidate="/opt/memoia-inspector/.deploy/candidates/$GITHUB_SHA"
+          # shellcheck disable=SC2029 # Validated candidate identity expands on the runner.
+          ssh "${ssh_opts[@]}" "$target" "sudo -n install -d -o root -g root -m 700 /opt/memoia-inspector /opt/memoia-inspector/.deploy /opt/memoia-inspector/.deploy/candidates '$candidate'"
+          # shellcheck disable=SC2029
+          tar -C deploy -cf - compose.yml deploy-inspector.sh runtime.env.example | ssh "${ssh_opts[@]}" "$target" "sudo -n tar -C '$candidate' -xf -"
+          # shellcheck disable=SC2029
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' init-config"
+          if [[ -n "$INSPECTOR_OPENAI_API_KEY" || -n "$INSPECTOR_OPENAI_MODEL" ]]; then
+            for name in INSPECTOR_OPENAI_API_KEY INSPECTOR_OPENAI_BASE_URL INSPECTOR_OPENAI_MODEL; do
+              [[ -n "${!name:-}" ]] || { echo "Incomplete optional Playground config: $name" >&2; exit 1; }
+            done
+            # shellcheck disable=SC2029 # Runtime values travel through SSH standard input.
+            node - <<'NODE' | ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' install-runtime-env"
+          const values = [
+            ['OPENAI_API_KEY', process.env.INSPECTOR_OPENAI_API_KEY],
+            ['OPENAI_BASE_URL', process.env.INSPECTOR_OPENAI_BASE_URL],
+            ['OPENAI_MODEL', process.env.INSPECTOR_OPENAI_MODEL],
+          ];
+          for (const [name, value] of values) {
+            if (!value || /[\r\n\0$#\s'"\\]/.test(value)) throw new Error(`Invalid ${name} secret`);
+            process.stdout.write(`${name}=${value}\n`);
+          }
+          NODE
+          fi
+          # shellcheck disable=SC2029
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          printf 'Online container accepted locally: source=%s digest=%s. External Access and management acceptance remain separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

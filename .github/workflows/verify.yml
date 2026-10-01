@@ -1,0 +1,38 @@
+name: Memoia Inspector · Verify
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+      - name: Check production dependency advisories
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
+      - name: Check deployment scripts and Compose
+        run: |
+          shellcheck deploy/*.sh
+          cp deploy/runtime.env.example deploy/.env
+          INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -f deploy/compose.yml config --quiet
