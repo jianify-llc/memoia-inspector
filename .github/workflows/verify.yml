@@ -1,0 +1,52 @@
+name: Memoia Inspector · Verify
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.12.4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+      - name: Check production dependency advisories
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
+      - name: Require the reviewed Next.js 15.5.26 version
+        run: |
+          node - <<'NODE'
+          const version = require('./package.json').dependencies.next;
+          if (version !== '15.5.26') {
+            throw new Error(`Release requires the reviewed Next.js 15.5.26 pin, got ${version}`);
+          }
+          NODE
+      - name: Check deployment scripts and Compose
+        run: |
+          shellcheck deploy/*.sh tests/deploy-inspector.test.sh
+          cp deploy/runtime.env.example deploy/.env
+          for stage in test online; do
+            project="memoia-inspector-$stage"
+            INSPECTOR_IMAGE=ghcr.io/jianify/memoia-inspector@sha256:$(printf '0%.0s' {1..64}) docker compose -p "$project" -f deploy/compose.yml config --format json |
+              jq -e --arg project "$project" '.name == $project' >/dev/null
+          done
+      - name: Test deployment state transitions
+        run: docker run --rm --network none -v "$PWD:/work:ro" -w /work python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e bash tests/deploy-inspector.test.sh
