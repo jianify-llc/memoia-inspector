@@ -26,7 +26,7 @@ describe('Test and Online release boundaries', () => {
 
   it('runs the same code checks for main, Test and Online without building Docker', () => {
     expect(verifyWorkflow.on.push).toEqual({ branches: ['main'] });
-    expect(verifyWorkflow.on.pull_request).toEqual({ branches: ['main'] });
+    expect(verifyWorkflow.on.pull_request).toEqual({ branches: ['main', 'test', 'release'] });
     expect(verifyWorkflow.on).toHaveProperty('workflow_call');
     expect(verifyWorkflow.on).toHaveProperty('merge_group');
     expect(testWorkflow.jobs.verify.uses).toBe('./.github/workflows/verify.yml');
@@ -41,23 +41,25 @@ describe('Test and Online release boundaries', () => {
   });
 
   it('publishes Test only from test, not from release tags', () => {
-    expect(testWorkflow.on.push?.branches).toContain('test');
+    expect(testWorkflow.on).toEqual({ push: { branches: ['test'] } });
     expect(testWorkflow.on.push?.tags).toBeUndefined();
-    expect(testWorkflow.jobs['publish-test'].if).toContain("github.event_name != 'pull_request'");
     expect(testWorkflow.jobs['publish-test'].needs).toContain('verify');
     expect(testWorkflow.jobs['deploy-test'].environment).toMatchObject({ name: 'test' });
     expect(testWorkflow.jobs['deploy-test'].needs).toContain('publish-test');
     expect(readFileSync(resolve(__dirname, '../.github/workflows/deploy-test.yml'), 'utf8')).toContain('INSPECTOR_STAGE=test bash');
   });
 
-  it('prepares a Release candidate before tag promotion and approval', () => {
-    expect(onlineWorkflow.on.push).toEqual({ branches: ['release'], tags: ['v*'] });
-    expect(onlineWorkflow.jobs['publish-candidate'].if).toContain("github.ref == 'refs/heads/release'");
-    expect(onlineWorkflow.jobs['promote-tag'].if).toContain("startsWith(github.ref, 'refs/tags/v')");
-    expect(onlineWorkflow.jobs['deploy-online'].needs).toContain('promote-tag');
+  it('builds only a release-HEAD tag and deploys its validated digest after approval', () => {
+    expect(onlineWorkflow.on).toEqual({ push: { tags: ['v*'] } });
+    expect(onlineWorkflow.jobs.verify.needs).toBe('validate-tag');
+    expect(onlineWorkflow.jobs['build-online'].needs).toBe('verify');
+    expect(onlineWorkflow.jobs['deploy-online'].needs).toBe('build-online');
     expect(onlineWorkflow.jobs['deploy-online'].environment).toMatchObject({ name: 'online' });
-    expect(onlineWorkflow.jobs['deploy-online'].if).toContain("startsWith(github.ref, 'refs/tags/v')");
-    expect(readFileSync(resolve(__dirname, '../.github/workflows/deploy-online.yml'), 'utf8')).toContain('INSPECTOR_STAGE=online bash');
+    const source = readFileSync(resolve(__dirname, '../.github/workflows/deploy-online.yml'), 'utf8');
+    expect(source).toContain('git ls-remote origin refs/heads/release');
+    expect(source).toContain('ghcr.io/${{ github.repository }}:${{ github.ref_name }}');
+    expect(source).toContain("DIGEST: ${{ needs.build-online.outputs.digest }}");
+    expect(source).toContain('INSPECTOR_STAGE=online bash');
     for (const [name, job] of Object.entries(onlineWorkflow.jobs)) {
       if (name !== 'deploy-online') expect(job.environment).toBeUndefined();
     }
