@@ -1,11 +1,8 @@
 name: Memoia Inspector · Test
 
 on:
-  pull_request:
-    branches: [test]
   push:
     branches: [test]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,7 +15,6 @@ jobs:
     uses: ./.github/workflows/verify.yml
 
   publish-test:
-    if: ${{ github.ref == 'refs/heads/test' && github.event_name != 'pull_request' }}
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 75
