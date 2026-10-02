@@ -6,7 +6,7 @@ The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a se
 
 ## v2 source management
 
-The existing v1 management pages and optional Playground are retained. The Users memory sheet adds a **Sources & history** tab using the fixed `@jianify/memoia@0.2.1` SDK from `vendor/`; generated SDK types and runtime validation come from the Memoia server's OpenAPI. The selected project cookie supplies the same origin/token to both clients, with no second session or profile cache.
+The existing v1 management pages and optional Playground are retained. The Users memory sheet adds a **Sources & history** tab using the fixed `@jianify/memoia@0.2.2` SDK from `vendor/`; generated SDK types and runtime validation come from the Memoia server's OpenAPI. The selected project cookie supplies the same origin/token to both clients, with no second session or profile cache.
 
 Sources expose message IDs, valid facts and their support groups, processing state, and current profile/source relationships. Profile history displays actual revisions with added/removed diffs and valid snapshots; withdrawn evidence is excluded and there is no snapshot restore operation. A separate accepted-operation list allows refresh-safe recovery of processing or retryable failures. Sources, revisions and operations use bounded pagination. Selecting source message IDs and confirming **retraction** rebuilds affected profiles/events from remaining evidence. Ordinary event deletion retains its original event-only meaning.
 

@@ -7,7 +7,7 @@ RUN npm install -g pnpm@10.12.4
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml .npmrc ./
-COPY vendor/jianify-memoia-0.2.1.tgz ./vendor/
+COPY vendor/jianify-memoia-0.2.2.tgz ./vendor/
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
