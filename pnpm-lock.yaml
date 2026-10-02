@@ -36,6 +36,9 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.1.1
         version: 5.1.1(react-hook-form@7.58.1(react@19.1.9))
+      '@jianify/memoia':
+        specifier: file:vendor/jianify-memoia-0.2.1.tgz
+        version: file:vendor/jianify-memoia-0.2.1.tgz
       '@memobase/memobase':
         specifier: ^0.0.16
         version: 0.0.16
@@ -1419,6 +1422,11 @@ packages:
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
+
+  '@jianify/memoia@file:vendor/jianify-memoia-0.2.1.tgz':
+    resolution: {integrity: sha512-gPXM3jUaWe52mMmBVeSmArfh4oYI+NzQE8Tor1vZc742IRoWXd3V9hRS13t9cHL/M/1iCrBTPgl1Z5BTk+nKaQ==, tarball: file:vendor/jianify-memoia-0.2.1.tgz}
+    version: 0.2.1
+    engines: {node: '>=22'}
 
   '@jridgewell/gen-mapping@0.3.8':
     resolution: {integrity: sha512-imAbBGkb+ebQyxKgzv5Hu2nmROxoDOXHh80evxdoXNOrvAnVx7zimzc1Oo5h9RlfV4vPXaE2iM5pOFbvOCClWA==}
@@ -7409,6 +7417,8 @@ snapshots:
       strip-ansi-cjs: strip-ansi@6.0.1
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
+
+  '@jianify/memoia@file:vendor/jianify-memoia-0.2.1.tgz': {}
 
   '@jridgewell/gen-mapping@0.3.8':
     dependencies:

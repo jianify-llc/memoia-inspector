@@ -15,6 +15,7 @@ import Users from "@/components/project/tabs/users";
 import Usage from "@/components/project/tabs/usage";
 import Config from "@/components/project/tabs/config";
 import Playground from "@/components/project/tabs/playground";
+import ProjectAdmin from "@/components/project/tabs/project-admin";
 
 import { getLocale } from "@/utils/memobase/client";
 
@@ -87,6 +88,7 @@ export default function ProjectPage() {
                 <TabsTrigger value="users">{t("tabs.users")}</TabsTrigger>
                 <TabsTrigger value="usage">{t("tabs.usage")}</TabsTrigger>
                 <TabsTrigger value="config">{t("tabs.config")}</TabsTrigger>
+                <TabsTrigger value="projectAdmin">{t("tabs.projectAdmin")}</TabsTrigger>
                 <TabsTrigger value="playground">
                   {t("tabs.playground")}
                   <Badge
@@ -109,6 +111,9 @@ export default function ProjectPage() {
             </TabsContent>
             <TabsContent value="config">
               <Config project={project} onRefresh={() => fetchProject()} />
+            </TabsContent>
+            <TabsContent value="projectAdmin">
+              <ProjectAdmin />
             </TabsContent>
             <TabsContent value="playground">
               <Playground project={project} />

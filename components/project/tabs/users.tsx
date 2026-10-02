@@ -33,6 +33,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { UserMemory } from "@/components/user-memory";
+import { UserProvenance } from "@/components/user-provenance";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -170,6 +172,12 @@ export default function Users({ project }: { project: Project }) {
         </SheetHeader>
 
         <SheetContent side="right" className="p-0">
+          <Tabs defaultValue="memories" className="h-full overflow-hidden pt-4">
+            <TabsList className="mx-4">
+              <TabsTrigger value="memories">{t("table.memories")}</TabsTrigger>
+              <TabsTrigger value="provenance">{t("provenance")}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="memories" className="min-h-0 flex-1 overflow-hidden">
           <UserMemory
             isLoading={memoriesLoading}
             setIsLoading={setMemoriesLoading}
@@ -181,6 +189,11 @@ export default function Users({ project }: { project: Project }) {
             }
             downloadFileName={`memobase-${memoriesUserId}.json`}
           />
+            </TabsContent>
+            <TabsContent value="provenance" className="min-h-0 flex-1 overflow-hidden">
+              {memoriesUserId ? <UserProvenance key={memoriesUserId} userId={memoriesUserId} /> : null}
+            </TabsContent>
+          </Tabs>
         </SheetContent>
       </Sheet>
 

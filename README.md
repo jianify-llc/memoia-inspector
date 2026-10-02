@@ -1,8 +1,20 @@
 # Memoia Inspector
 
-Memoia Inspector is a fork of [Memobase Inspector](https://github.com/memodb-io/memobase-inspector). It keeps the upstream project-switching UI, user/profile/event management, and chat Playground. The original Memobase TypeScript SDK and HTTP contract remain in use; this fork does not replace the SDK.
+Memoia Inspector is a fork of [Memobase Inspector](https://github.com/memodb-io/memobase-inspector). It keeps the upstream project-switching UI, user/profile/event management, and chat Playground. The original Memobase TypeScript SDK and HTTP contract remain in use for the retained v1 pages; source management uses the separate Memoia v2 SDK.
 
 The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a separate Apache-2.0 project. Deployment of this admin UI should be protected by an access layer: the project token entered in the UI is still required to access a Memoia project, but is not a substitute for authenticating the human administrator.
+
+## v2 source management
+
+The existing v1 management pages and optional Playground are retained. The Users memory sheet adds a **Sources & history** tab using the fixed `@jianify/memoia@0.2.1` SDK from `vendor/`; generated SDK types and runtime validation come from the Memoia server's OpenAPI. The selected project cookie supplies the same origin/token to both clients, with no second session or profile cache.
+
+Sources expose message IDs, valid facts and their support groups, processing state, and current profile/source relationships. Profile history displays actual revisions with added/removed diffs and valid snapshots; withdrawn evidence is excluded and there is no snapshot restore operation. A separate accepted-operation list allows refresh-safe recovery of processing or retryable failures. Sources, revisions and operations use bounded pagination. Selecting source message IDs and confirming **retraction** rebuilds affected profiles/events from remaining evidence. Ordinary event deletion retains its original event-only meaning.
+
+A processing or lost-acknowledgement response is not successful deletion. Keep the displayed stable operation key, query it, then explicitly resume the server's accepted operation if appropriate. The UI never reconstructs and resubmits a changed message body. Refreshes discard old evidence, and switching users discards/cancels stale read results. Rolling back an Inspector image cannot undo completed management writes.
+
+The server must support v2 before these new controls can be accepted. Local tests/builds do not prove source withdrawal, Cloudflare Access isolation, real model calls, or cross-version recovery; those are separate Test acceptance steps.
+
+The additional **Projects & permissions** tab reads current projects and scoped keys with bounded pagination. Root credentials can create/suspend projects; project administrators can issue/revoke their own `read`/`write`/`admin` keys, and the backend enforces these boundaries. Newly issued tokens are shown once in the mounted view, never placed in a Cookie or local storage. Unknown mutations are not repeated automatically: refresh current server state before continuing. Access changes require confirmation; existing project switching and legacy-token display stay unchanged. Legacy token rotation is intentionally not offered as a UI button.
 
 ## Development
 
@@ -21,6 +33,7 @@ The optional Playground calls a model independently of Memoia. Admin features do
 
 ```bash
 pnpm test
+pnpm check:sdk
 pnpm typecheck
 pnpm lint
 pnpm build
