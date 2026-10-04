@@ -1,5 +1,11 @@
 # Test deployment
 
+## GitHub Organization and image ownership
+
+The source repository is `jianify-llc/memoia-inspector`; the currently accepted Test image remains in `ghcr.io/jianify/memoia-inspector`. Publishing uses `github.repository`, so new candidates after the repository transfer target `ghcr.io/jianify-llc/memoia-inspector`. Before accepting a new candidate, confirm its package is linked to the organization repository, grants that repository Actions write access, and permits anonymous pulls of both architectures. Repository visibility does not establish package visibility.
+
+The deployment script accepts digest-addressed images from either namespace. Recovery still requires the exact image and source from an accepted record. Preserve old packages and historical digests until new publication, server pulls and recovery have been verified; changing only the owner string of an old digest is not a migration.
+
 This is a separate application on the existing Japan test host. It does not restart Memoia, PostgreSQL, Redis, or the host cloudflared service. The test hostname is `test-memoia-inspector.jianify.dev`; the container is reachable on the host only at `127.0.0.1:3001`. The Online workflow is prepared separately but has not been accepted on an Online host.
 
 The versioned deployment script requires `INSPECTOR_STAGE=test` or `online` and passes `-p memoia-inspector-<stage>` to Compose. This overrides the file's legacy `name: memoia-inspector-test` without changing the already installed Test Compose or its project identity. Actions passes the stage explicitly through `sudo -n env`; manual recovery must do the same. An absent or unknown stage fails before the script touches deployment state.
@@ -15,7 +21,7 @@ The project URL/token entered in the UI are browser-session credentials. Inspect
 
 ## Daily update and recovery
 
-The shared `verify.yml` runs tests, typecheck, lint, application build, production-dependency audit, and deployment-contract tests. It also handles `main` push/PR and merge queue CI without building a Docker image. `deploy-test.yml` calls it only on `test` push, then publishes an AMD64/ARM64 manifest only once per source SHA, confirms public anonymous pulls, and—when the gate is enabled—copies only this repository's deployment script/Compose candidate and runs `apply`. The script refuses a changed Compose, changed accepted runtime config, an old run ID, an unresolved prior attempt, or an image whose source label differs. Routine updates replace only the Inspector container.
+The shared `verify.yml` runs tests, typecheck, lint, application build, production-dependency audit, and deployment-contract tests. It handles main archive PR and merge queue CI without building a Docker image. `deploy-test.yml` calls it only for an explicit manual Test acceptance batch, then publishes an AMD64/ARM64 manifest only once per source SHA, confirms public anonymous pulls, and—when the gate is enabled—copies only this repository's deployment script/Compose candidate and runs `apply`. The script refuses a changed Compose, changed accepted runtime config, an old run ID, an unresolved prior attempt, or an image whose source label differs. Routine updates replace only the Inspector container.
 
 Test publication and Online tag construction are pinned to Next.js `15.5.26`, the [September 22 security update](https://nextjs.org/blog/nextjs-security-update-september-22-2026), as requested for the current rollout. The [announced September 30 security release](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026) addresses further issues, so `15.5.26` must not be treated as fully patched. Keep the origin loopback-only and do not expose the browser route until Access covers the whole hostname. Before approving any Online tag, recheck the published advisories and explicitly decide whether to update Next.js; the current workflow does not enforce a newer version. A passing dependency audit or Online image build alone is not a security acceptance decision.
 
@@ -25,8 +31,33 @@ For a failed A → B update, `current` still identifies A; `previous` may be abs
 
 Manual acceptance must cover: unauthorized Access denial; no direct public port 3001; correct and incorrect Memoia token; failed and successful user deletion/config update with read confirmation; project switch and credential loss; user/profile/event reads; container restart; memory/OOM. With blank model settings, confirm the visible Playground chat returns unavailable without creating a test user or writing memory. Real streaming chat, insert, and flush are required only if optional model settings are enabled. Automated local health checks do not establish these external boundaries. If no second compatible digest exists, cross-version update/restore remains unverified.
 
+## Local checks and explicit Test acceptance
+
+The [company branch/release policy](https://github.com/jianify-llc/Jianify-LLC/blob/main/docs/engineering/branch-release.md) owns the shared rules. Ordinary development/Test/release pushes and development PRs do not start Actions. Only pull requests archiving to main and their merge queue retain Required Verify; Online tags and approval remain separate.
+
+```bash
+pnpm hooks:install
+pnpm ci:local
+# After committing this batch, from its clean worktree:
+pnpm push:test
+# Only for an explicitly authorized Test acceptance batch:
+gh workflow run deploy-test.yml --ref test --repo jianify-llc/memoia-inspector
+```
+
+The local and remote Verify entry is `scripts/verify_local.py`. It requires Python 3, Node.js, pnpm 10.12.4, ShellCheck and local Docker. Frozen dependency installation, application checks/build/audit and existing deployment fixtures run in a temporary source copy without business .env files or inherited platform credentials. The fixture container has no network and uses this batch's unique name. This does not publish a Docker image, call Memoia/model APIs or establish Access acceptance. Dependency downloads inherit only credential-free transport proxy settings. Cleanup removes only this batch's container and its anonymous volumes. The full check budget is 30 minutes; failure, cancellation, timeout or missing dependencies prevents Test push.
+
+Long checks finish before the push connection opens. The pre-push hook validates the exact commit and remote Test baseline for that invocation, refuses dirty or changed source, stale proof, force updates and Test deletion. Direct Test pushes are refused. Internal proof is not a security credential or cache and must not be forged/reused; do not bypass hooks. Installation refuses an existing hook manager rather than overwriting it. Update/install each checkout and verify default-branch workflow registration after merging; do not dispatch Actions merely to test that ordinary pushes remain quiet.
+
+Manual Test selection is checked against the current Test branch before Verify and image construction. `INSPECTOR_TEST_DEPLOY_ENABLED`, package identity/anonymous-pull checks and existing runtime recovery gates still apply. Changes to this source do not establish that a new organization GHCR package can be pulled or that Online is ready.
+
+### Registering the replacement workflow
+
+On 2026-10-04 the legacy Test workflow was temporarily disabled to prevent ordinary pushes publishing before this change lands; Verify and Online remain enabled. Commit/merge this batch only with repository authorization, register the `workflow_dispatch` Test definition on the default branch, and retain the same deployment contract on Test. Read back the actual workflow source: Test must have no push trigger, and Verify must exclude development/Test PRs and duplicate main push checks. Verify the hook installation and local dependencies.
+
+Only after confirming the replacement source, run `gh workflow enable deploy-test.yml --repo jianify-llc/memoia-inspector`. Do not enable the old `on: push` definition. Enabling does not start a run; dispatch only an authorized acceptance batch. Until the source is merged, the remote legacy Verify triggers may still exist. Local edits do not establish remote rollout.
+
 ## Release and Online boundary
 
-New feature branches start from `main`, enter `test` for automatic Test publication and acceptance, then the same feature enters `release`. A `release` push does not run Actions. Only a stable `v*` tag at the current `release` HEAD runs `deploy-online.yml`: validate tag source, verify, build the multi-architecture version image once, validate digest/architectures/source labels, then deploy that exact digest after approval. Test and Release merges may have different SHAs and are not assumed to have the same image digest.
+New feature branches start from `main`, enter `test` after local checks, then explicitly start manual Test publication and acceptance, then the same feature enters `release`. A `release` push does not run Actions. Only a stable `v*` tag at the current `release` HEAD runs `deploy-online.yml`: validate tag source, verify, build the multi-architecture version image once, validate digest/architectures/source labels, then deploy that exact digest after approval. Test and Release merges may have different SHAs and are not assumed to have the same image digest.
 
 Only the tag's `deploy-online` job references the `online` GitHub Environment. That Environment must require approval by `jianify`, permit self-review, disable administrator bypass, and allow only `v*` tags; its deployment credentials must not be repository-level secrets. Approval releases the Online SSH credentials and deploys the exact validated digest. The Online host, dedicated SSH key, secrets, Access/Tunnel route, and business acceptance have **not** been configured or verified in this Test-only rollout. The workflow's local health check does not prove Cloudflare Access isolation or management correctness; those remain explicit Online acceptance requirements before `release` is archived to `main`.

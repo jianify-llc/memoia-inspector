@@ -1,6 +1,7 @@
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 /**
  * 获取 profile
@@ -23,6 +24,8 @@ export async function GET() {
  * @param body profile data
  */
 export async function POST(req: Request) {
+  const originError = rejectCrossOriginMutation(req);
+  if (originError) return originError;
   const { content, topic, sub_topic } = await req.json();
   if (!content || !topic || !sub_topic) {
     return createApiError("Bad Request", 400);

@@ -1,12 +1,15 @@
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 /**
  * 删除 event
  * @param event_id event ID
  */
 export async function DELETE(req: Request, { params }: { params: Promise<{ event_id: string }> }) {
+  const originError = rejectCrossOriginMutation(req);
+  if (originError) return originError;
   const { event_id } = await params;
   if (!event_id) {
     return createApiError("Bad Request", 400);

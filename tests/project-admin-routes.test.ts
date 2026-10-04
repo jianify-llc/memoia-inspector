@@ -9,7 +9,8 @@ import { PATCH as updateProject } from "@/app/api/memoia/projects/[project_id]/r
 import { GET as keys, POST as issueKey } from "@/app/api/memoia/projects/[project_id]/keys/route";
 import { DELETE as revokeKey } from "@/app/api/memoia/projects/[project_id]/keys/[key_id]/route";
 const params = { params: Promise.resolve({ project_id: "luvel-test", key_id: "key-id" }) };
-const post = (body: unknown) => new Request("http://localhost/api", { method: "POST", body: JSON.stringify(body) });
+const post = (body: unknown) => new Request("http://localhost/api", { method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" }, body: JSON.stringify(body) });
+const deletion = () => new Request("http://localhost", { method: "DELETE", headers: { origin: "http://localhost" } });
 beforeEach(() => { vi.resetAllMocks(); factory.client.mockResolvedValue(sdk); });
 
 describe("project and scoped-key management", () => {
@@ -17,7 +18,7 @@ describe("project and scoped-key management", () => {
     factory.client.mockResolvedValue(null);
     expect((await projects(new Request("http://localhost"))).status).toBe(401);
     expect((await issueKey(post({}), params)).status).toBe(401);
-    expect((await revokeKey(new Request("http://localhost"), params)).status).toBe(401);
+    expect((await revokeKey(deletion(), params)).status).toBe(401);
     expect(sdk.createKey).not.toHaveBeenCalled();
   });
   it("rejects sibling-origin Cookie-backed writes before invoking the SDK", async () => {
@@ -42,7 +43,7 @@ describe("project and scoped-key management", () => {
   it("does not report denied creation, suspension or revocation as success", async () => {
     const denied = new MemoiaError("HTTP_ERROR", 403, false);
     sdk.createProject.mockRejectedValue(denied); sdk.updateProject.mockRejectedValue(denied); sdk.revokeKey.mockRejectedValue(denied);
-    for (const response of [await createProject(post({ project_id: "test" })), await updateProject(post({ status: "suspended" }), params), await revokeKey(new Request("http://localhost"), params)]) {
+    for (const response of [await createProject(post({ project_id: "test" })), await updateProject(post({ status: "suspended" }), params), await revokeKey(deletion(), params)]) {
       expect(response.status).toBe(403); expect((await response.json()).data).toBeNull();
     }
   });
@@ -50,7 +51,7 @@ describe("project and scoped-key management", () => {
     sdk.createKey.mockRejectedValue(new MemoiaError("TRANSPORT_ERROR", null, false, "unknown"));
     expect((await (await issueKey(post({}), params)).json()).message).toBe("OUTCOME_UNKNOWN");
     sdk.revokeKey.mockResolvedValue(undefined);
-    const response = await revokeKey(new Request("http://localhost"), params);
+    const response = await revokeKey(deletion(), params);
     expect(response.status).toBe(200); expect((await response.json()).code).toBe(0);
   });
 });

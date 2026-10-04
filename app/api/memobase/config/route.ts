@@ -1,6 +1,7 @@
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoBaseClient } from "@/utils/memobase/client";
+import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 /**
  * 获取项目配置
@@ -21,6 +22,8 @@ export async function GET() {
  * 更新项目配置
  */
 export async function PUT(req: Request) {
+  const originError = rejectCrossOriginMutation(req);
+  if (originError) return originError;
   const { config } = await req.json();
   if (!config) {
     return createApiError("参数错误", 400);

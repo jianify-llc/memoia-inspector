@@ -25,7 +25,7 @@ describe("optional Playground model", () => {
     vi.stubEnv("OPENAI_MODEL", model);
 
     const statusResponse = await GET();
-    const response = await POST(new Request("http://localhost/api/chat", { method: "POST" }));
+    const response = await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { origin: "http://localhost" } }));
 
     expect(statusResponse.status).toBe(200);
     expect(await statusResponse.json()).toEqual({ enabled: false });

@@ -1,6 +1,7 @@
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoBaseClient, getMemobaseUser, clearMemobaseUser } from "@/utils/memobase/client";
+import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 /**
  * 获取项目用户
@@ -27,7 +28,9 @@ export async function GET(req: Request) {
 /**
  * 删除 user
  */
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const originError = rejectCrossOriginMutation(req);
+  if (originError) return originError;
   try {
     const deleted = await (await memoBaseClient()).deleteUser(await getMemobaseUser());
     if (!deleted) {

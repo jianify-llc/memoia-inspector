@@ -13,7 +13,7 @@ export MOCK_STATE="$fixture/state"
 A_SHA="$(printf 'a%.0s' {1..40})"
 B_SHA="$(printf 'b%.0s' {1..40})"
 A_IMAGE="ghcr.io/jianify/memoia-inspector@sha256:$(printf 'a%.0s' {1..64})"
-B_IMAGE="ghcr.io/jianify/memoia-inspector@sha256:$(printf 'b%.0s' {1..64})"
+B_IMAGE="ghcr.io/jianify-llc/memoia-inspector@sha256:$(printf 'b%.0s' {1..64})"
 export A_SHA B_SHA A_IMAGE B_IMAGE
 export INSPECTOR_STAGE=test
 export PATH="$fixture/bin:$PATH"
@@ -96,6 +96,8 @@ grep -Fxq 'OPENAI_API_KEY=' "$fixture/service/.env"
 expect_failure deploy install-runtime-env <<< 'OPENAI_API_KEY=test'
 
 export MOCK_FAIL_IMAGE="$B_IMAGE"
+expect_failure deploy apply "${B_IMAGE/jianify-llc\//unrelated/}" "$B_SHA" 100
+[[ ! -e "$fixture/service/.deploy/pending" ]]
 expect_failure deploy apply "$B_IMAGE" "$B_SHA" 100
 [[ ! -e "$fixture/service/.deploy/current" && -f "$fixture/service/.deploy/pending" ]]
 [[ "$(cat "$MOCK_STATE/status")" == stopped ]]

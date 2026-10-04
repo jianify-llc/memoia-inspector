@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { Operation, Source } from "@jianify/memoia";
-import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, retractSourceMessages, retryOperation, type UserProvenanceData } from "@/api/models/memoia";
+import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, type UserProvenanceData } from "@/api/models/memoia";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { canResumeOperation } from "@/lib/operation-recovery";
 
 /** Provenance is read on demand, without a second cache or stored profile snapshot. */
 export function UserProvenance({ userId }: { userId: string }) {
@@ -59,18 +60,19 @@ export function UserProvenance({ userId }: { userId: string }) {
     }
   };
 
-  const retract = async () => {
+  const deleteMessages = async () => {
     if (!selected || !selectedMessages.length || pendingKey) return;
-    const key = `inspector:retract:${crypto.randomUUID()}`;
+    const key = `inspector:delete-messages:${crypto.randomUUID()}`;
     setPendingKey(key);
     setOperation(null);
     setBusy(true);
     try {
-      const response = await retractSourceMessages(userId, selected.source_id, selectedMessages, key);
+      const response = await deleteSourceMessages(userId, selected.source_id, selectedMessages, key);
       if (response.code !== 0 || !response.data) {
         // Authentication/parameter errors were rejected before acceptance.
         // An unclassified/server failure may have committed; retain its key.
-        if ([400, 401, 403, 413, 422].includes(response.code)) setPendingKey(null);
+        // 413 can occur after accepted withdrawal hid evidence; query its key.
+        if ([400, 401, 403, 422].includes(response.code)) setPendingKey(null);
         toast.error(response.message === "OUTCOME_UNKNOWN" ? t("unknown") : response.message || t("failed"));
         return;
       }
@@ -128,7 +130,7 @@ export function UserProvenance({ userId }: { userId: string }) {
             <p role="status">{operation?.status === "processing" ? t("processing") : t("unknown")}</p>
             <code className="block break-all text-xs">{pendingKey}</code>
             <Button size="sm" disabled={busy} onClick={() => void query()}>{t("query")}</Button>
-            {operation && (operation.status === "processing" || operation.error?.retryable) ? (
+            {operation && canResumeOperation(operation) ? (
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void recover()}>{t("recover")}</Button>
             ) : null}
           </CardContent>
@@ -140,8 +142,7 @@ export function UserProvenance({ userId }: { userId: string }) {
           {!data.sources.length ? <p>{t("empty")}</p> : data.sources.map((source) => (
             <Card key={source.source_id}>
               <CardContent className="space-y-2 pt-4">
-                <p className="break-all text-sm">{source.external_id}</p>
-                <Badge variant="secondary">{source.status}</Badge>
+                {source.legacy ? <Badge variant="secondary">legacy</Badge> : null}
                 <p className="break-all text-xs text-muted-foreground">{source.source_id}</p>
                 <p className="text-xs">{new Date(source.created_at).toLocaleString()}</p>
                 <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void inspect(source.source_id)}>{t("inspect")}</Button>
@@ -152,6 +153,14 @@ export function UserProvenance({ userId }: { userId: string }) {
             <Card>
               <CardHeader><CardTitle>{t("evidence")}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
+                <h4 className="font-medium">{t("blobs")}</h4>
+                {selected.blobs.map((blob) => (
+                  <div key={blob.blob_id} className="space-y-1 border-b pb-2 text-xs">
+                    <code className="break-all">{blob.blob_id}</code>
+                    <Badge variant="secondary">{blob.status}</Badge>
+                    <p>{blob.message_ids.join(", ")}</p>
+                  </div>
+                ))}
                 {selected.evidence.map((fact) => (
                   <div key={fact.fact_id} className="space-y-1 border-b pb-2">
                     <p>{fact.content}</p>
@@ -160,14 +169,14 @@ export function UserProvenance({ userId }: { userId: string }) {
                   </div>
                 ))}
                 <p className="text-sm">{t("messages")}</p>
-                {selected.message_ids.filter((id) => !selected.retracted_message_ids.includes(id)).map((id) => (
+                {selected.message_ids.filter((id) => !selected.deleted_message_ids.includes(id)).map((id) => (
                   <label key={id} className="flex items-center gap-2 break-all text-sm">
-                    <input type="checkbox" checked={selectedMessages.includes(id)} disabled={busy || !!pendingKey || selected.status !== "active"}
+                    <input type="checkbox" checked={selectedMessages.includes(id)} disabled={busy || !!pendingKey}
                       onChange={(event) => setSelectedMessages((values) => event.target.checked ? [...values, id] : values.filter((value) => value !== id))} />
                     {id}
                   </label>
                 ))}
-                <Button variant="destructive" disabled={!selectedMessages.length || busy || !!pendingKey || selected.status !== "active"} onClick={() => setConfirm(true)}>{t("retract")}</Button>
+                <Button variant="destructive" disabled={!selectedMessages.length || busy || !!pendingKey} onClick={() => setConfirm(true)}>{t("deleteMessages")}</Button>
               </CardContent>
             </Card>
           ) : null}
@@ -206,10 +215,11 @@ export function UserProvenance({ userId }: { userId: string }) {
             <Card key={existing.operation_id}>
               <CardContent className="space-y-2 pt-4 text-sm">
                 <Badge variant="secondary">{existing.status}</Badge>
-                <p className="break-all">{existing.external_id}</p>
+                <p className="break-all">{existing.source_id}</p>
+                {existing.blob_id ? <p className="break-all text-xs">{existing.blob_id}</p> : null}
                 <p className="break-all text-xs">{existing.operation_id}</p>
                 {existing.error ? <p>{existing.error.code}</p> : null}
-                {existing.status === "processing" || existing.error?.retryable ? (
+                {canResumeOperation(existing) ? (
                   <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void recover(existing)}>{t("recover")}</Button>
                 ) : null}
               </CardContent>
@@ -231,7 +241,7 @@ export function UserProvenance({ userId }: { userId: string }) {
           <p className="break-all text-sm">{selectedMessages.join(", ")}</p>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction disabled={busy} onClick={() => void retract()}>{t("retract")}</AlertDialogAction>
+            <AlertDialogAction disabled={busy} onClick={() => void deleteMessages()}>{t("deleteMessages")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

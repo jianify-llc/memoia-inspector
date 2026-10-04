@@ -19,7 +19,7 @@ FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b533
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 ARG SOURCE_REVISION
-LABEL org.opencontainers.image.source="https://github.com/jianify/memoia-inspector" \
+LABEL org.opencontainers.image.source="https://github.com/jianify-llc/memoia-inspector" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="MIT"
 RUN addgroup -S -g 1001 nextjs && adduser -S -u 1001 -G nextjs nextjs

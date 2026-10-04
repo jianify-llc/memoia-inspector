@@ -4,6 +4,9 @@
   "private": true,
   "packageManager": "pnpm@10.12.4",
   "scripts": {
+    "ci:local": "python3 scripts/verify_local.py",
+    "push:test": "python3 scripts/test_push.py push",
+    "hooks:install": "python3 scripts/test_push.py install",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
@@ -17,7 +20,7 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
-    "@jianify/memoia": "file:vendor/jianify-memoia-0.2.2.tgz",
+    "@jianify/memoia": "file:vendor/jianify-memoia-0.3.0.tgz",
     "@ai-sdk/openai": "^1.3.22",
     "@assistant-ui/react": "^0.10.24",
     "@assistant-ui/react-ai-sdk": "^0.10.14",

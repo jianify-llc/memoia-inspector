@@ -163,5 +163,5 @@ jobs:
           NODE
           fi
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=online bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify-llc/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
           printf 'Online container accepted locally: source=%s digest=%s. External Access and management acceptance remain separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

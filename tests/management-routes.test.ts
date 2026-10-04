@@ -23,6 +23,7 @@ describe("SDK boolean failure responses", () => {
     sdk.updateConfig.mockResolvedValue(false);
     const response = await updateConfig(new Request("http://localhost/api/memobase/config", {
       method: "PUT",
+      headers: { origin: "http://localhost", "content-type": "application/json" },
       body: JSON.stringify({ config: "a: 1" }),
     }));
     expect(response.status).toBe(502);
@@ -31,7 +32,7 @@ describe("SDK boolean failure responses", () => {
 
   it("does not report failed project-user deletion as success", async () => {
     sdk.deleteUser.mockResolvedValue(false);
-    const response = await deleteProjectUser(new Request("http://localhost/api/memobase/user/u1"), {
+    const response = await deleteProjectUser(new Request("http://localhost/api/memobase/user/u1", { method: "DELETE", headers: { origin: "http://localhost" } }), {
       params: Promise.resolve({ uid: "u1" }),
     });
     expect(response.status).toBe(502);
@@ -40,7 +41,7 @@ describe("SDK boolean failure responses", () => {
 
   it("keeps the playground user after failed deletion", async () => {
     sdk.deleteUser.mockResolvedValue(false);
-    const response = await deletePlaygroundUser();
+    const response = await deletePlaygroundUser(new Request("http://localhost/api/memobase/user", { method: "DELETE", headers: { origin: "http://localhost" } }));
     expect(response.status).toBe(502);
     expect((await response.json()).code).toBe(502);
     expect(sdk.clearMemobaseUser).not.toHaveBeenCalled();
@@ -48,7 +49,7 @@ describe("SDK boolean failure responses", () => {
 
   it("clears the playground user only after confirmed deletion", async () => {
     sdk.deleteUser.mockResolvedValue(true);
-    const response = await deletePlaygroundUser();
+    const response = await deletePlaygroundUser(new Request("http://localhost/api/memobase/user", { method: "DELETE", headers: { origin: "http://localhost" } }));
     expect(response.status).toBe(200);
     expect((await response.json()).code).toBe(0);
     expect(sdk.clearMemobaseUser).toHaveBeenCalledOnce();

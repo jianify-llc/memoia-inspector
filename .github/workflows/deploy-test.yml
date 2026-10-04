@@ -1,8 +1,7 @@
 name: Memoia Inspector · Test
 
 on:
-  push:
-    branches: [test]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,7 +10,21 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  validate-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require the selected current Test branch
+        env:
+          SELECTED_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$SELECTED_REF" == refs/heads/test ]] || { echo 'Select the Test branch explicitly' >&2; exit 1; }
+          [[ "$(git ls-remote origin refs/heads/test | cut -f1)" == "$GITHUB_SHA" ]] || { echo 'A newer Test commit exists' >&2; exit 1; }
+
   verify:
+    needs: validate-test
     uses: ./.github/workflows/verify.yml
 
   publish-test:
@@ -155,5 +168,5 @@ jobs:
           NODE
           fi
           # shellcheck disable=SC2029
-          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=test bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
+          ssh "${ssh_opts[@]}" "$target" "sudo -n env INSPECTOR_STAGE=test bash '$candidate/deploy-inspector.sh' apply 'ghcr.io/jianify-llc/memoia-inspector@$DIGEST' '$GITHUB_SHA' '$GITHUB_RUN_ID'"
           printf 'Inspector installed locally: source=%s digest=%s; Access acceptance remains separate.\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

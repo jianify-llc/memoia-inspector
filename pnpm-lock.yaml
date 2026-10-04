@@ -37,8 +37,8 @@ importers:
         specifier: ^5.1.1
         version: 5.1.1(react-hook-form@7.58.1(react@19.1.9))
       '@jianify/memoia':
-        specifier: file:vendor/jianify-memoia-0.2.2.tgz
-        version: file:vendor/jianify-memoia-0.2.2.tgz
+        specifier: file:vendor/jianify-memoia-0.3.0.tgz
+        version: file:vendor/jianify-memoia-0.3.0.tgz
       '@memobase/memobase':
         specifier: ^0.0.16
         version: 0.0.16
@@ -1423,9 +1423,9 @@ packages:
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.2.2.tgz':
-    resolution: {integrity: sha512-JfTJKTBgmdt6wu6WKngw1WZWCQ6OrUZUw5BURd4BddvPIuYErc5aCcx9NaA421KlLN3p2iqjiPWFs7WUXAjhqA==, tarball: file:vendor/jianify-memoia-0.2.2.tgz}
-    version: 0.2.2
+  '@jianify/memoia@file:vendor/jianify-memoia-0.3.0.tgz':
+    resolution: {integrity: sha512-l9BpWfpbEvgKlnGBz5kg8wYeEhRbHGT5LBeX2HsvzGb4J8ZeOVS1vbDRRfY99YYxxsTCKx1bMNwqe5nFf98/Mw==, tarball: file:vendor/jianify-memoia-0.3.0.tgz}
+    version: 0.3.0
     engines: {node: '>=22'}
 
   '@jridgewell/gen-mapping@0.3.8':
@@ -7418,7 +7418,7 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.2.2.tgz': {}
+  '@jianify/memoia@file:vendor/jianify-memoia-0.3.0.tgz': {}
 
   '@jridgewell/gen-mapping@0.3.8':
     dependencies:

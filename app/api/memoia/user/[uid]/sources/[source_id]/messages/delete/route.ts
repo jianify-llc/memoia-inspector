@@ -14,7 +14,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ uid
     const { uid, source_id } = await params;
     // Runtime validation belongs to the generated SDK contract, not a second
     // handwritten copy of the API's message/key rules.
-    const operation = await client.retractMessages(uid, source_id, input as Parameters<typeof client.retractMessages>[2], { deadline: Date.now() + 90_000 });
+    const operation = await client.deleteMessages(uid, source_id, input as Parameters<typeof client.deleteMessages>[2], { deadline: Date.now() + 90_000 });
     return createApiResponse(operation, operation.status, 0, operation.status === "processing" ? 202 : 200);
   } catch (error) {
     return memoiaApiError(error);

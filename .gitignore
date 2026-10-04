@@ -46,3 +46,6 @@ next-env.d.ts
 
 # wrangler
 .wrangler
+
+# Python Git hook and local verifier bytecode
+__pycache__/

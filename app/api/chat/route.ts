@@ -2,6 +2,7 @@ import { openai } from "@/lib/openai";
 import { jsonSchema, streamText } from "ai";
 
 import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 export const maxDuration = 30;
 
@@ -19,6 +20,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const originError = rejectCrossOriginMutation(req);
+  if (originError) return originError;
   if (!isPlaygroundConfigured()) {
     return new Response("Playground model is not configured", { status: 503 });
   }
