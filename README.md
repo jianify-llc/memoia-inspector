@@ -20,18 +20,14 @@ The Playground calls a model independently of Memoia. Configure `OPENAI_API_KEY`
 ## Tests and deployment
 
 ```bash
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm build
-pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
+pnpm hooks:install
+pnpm ci:local --mode quick
+pnpm ci:local --mode full
+pnpm push:test
 ```
 
-The test-server installation, GitHub Actions setup, Cloudflare Access boundary, and recovery procedure are in [deploy/README.md](deploy/README.md). The public image is built by Actions from the `test` branch and is deployed by manifest digest; the VPS never builds source code.
+Use quick for everyday type, lint and offline business checks. Test push verifies the clean, exact outgoing commit with full checks selected from the remote Test SHA captured before pushing; missing or unsafe baselines expand to full verification. Local full also runs dependency audit, relevant deployment/hook tests and a real Docker build when required. The temporary source copy excludes business dotenv files and Git credentials. No real model or management API is called by these checks.
 
-Test publication is manual: select the current `test` branch when running
-`deploy-test.yml`. Other branches and stale commits fail before verification or
-publication. The default-branch definition registers the entry point; the selected
-Test commit supplies the workflow and application code. Main archive PRs and merge
-queues retain the required `verify` check. This workflow-only update does not archive
-Test application code, change Online approval, or deploy a service.
+Cloud Verify for main PRs and merge queues builds the actual candidate Docker image without publishing. Ordinary branch pushes do not start Actions. Test publication is manual and builds AMD64 once. Stable release tags build AMD64 and ARM64 independently on native runners, assemble and verify their immutable manifest, then retain the Online Environment approval boundary. Docker owns the production build; cloud CI does not repeat the host Next build or business tests. Versions are owned by the manifest and lockfile.
+
+Build, publication, local health and real Access/management/model acceptance are separate outcomes. Default-branch registration and protected merge still require the actual PR build check; local results do not register a workflow or prove remote deployment. See [deploy/README.md](deploy/README.md) for branch-specific installation and recovery limits.
