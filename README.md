@@ -28,3 +28,10 @@ pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
 ```
 
 The test-server installation, GitHub Actions setup, Cloudflare Access boundary, and recovery procedure are in [deploy/README.md](deploy/README.md). The public image is built by Actions from the `test` branch and is deployed by manifest digest; the VPS never builds source code.
+
+Test publication is manual: select the current `test` branch when running
+`deploy-test.yml`. Other branches and stale commits fail before verification or
+publication. The default-branch definition registers the entry point; the selected
+Test commit supplies the workflow and application code. Main archive PRs and merge
+queues retain the required `verify` check. This workflow-only update does not archive
+Test application code, change Online approval, or deploy a service.
