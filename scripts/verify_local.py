@@ -1,4 +1,4 @@
-"""Inspector 本地与远端 Verify 共用入口；临时源码，不读取业务 .env。"""
+"""Inspector 本地验证；可靠差异选择检查，临时源码不读取业务 .env。"""
 import argparse
 from contextlib import contextmanager
 import json
@@ -14,29 +14,46 @@ import uuid
 from test_push import ROOT, local_env, run
 
 
-def tools_required(mode, base=None):
-    if mode == "publish":
-        return False
-    if mode == "full" or not base or base == "0" * 40:
-        return True
+def changed_paths(base=None):
+    if not base or base == "0" * 40:
+        return None
     if len(base) != 40 or any(c not in "0123456789abcdef" for c in base):
         raise ValueError("CI_BASE_INVALID")
     try:
-        changed = run(["git", "diff", "--name-only", "-z", base, "HEAD"], cwd=ROOT, capture=True, timeout=30).split("\0")
-    except subprocess.CalledProcessError:
-        return True
-    return any(name.startswith(("scripts/", "deploy/", ".githooks/", ".github/"))
+        if run(["git", "status", "--porcelain"], cwd=ROOT, capture=True, timeout=30):
+            return None
+        run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=ROOT, capture=True, timeout=30)
+        return [name for name in run(["git", "diff", "--name-only", "-z", base, "HEAD"], cwd=ROOT, capture=True, timeout=30).split("\0") if name]
+    except subprocess.SubprocessError:
+        return None
+
+
+def verification_scope(mode, base=None):
+    if mode not in ("quick", "full"):
+        raise ValueError("CI_MODE_INVALID")
+    if mode == "quick":
+        return dict(business=True, tools=False, build=False)
+    changed = changed_paths(base)
+    if changed is None:
+        return dict(business=True, tools=True, build=True)
+    tools = any(name.startswith(("scripts/", "deploy/", ".githooks/", ".github/"))
                or name in ("tests/deploy-inspector.test.sh", "tests/workflow-contract.test.ts", "Dockerfile", "package.json", "pnpm-lock.yaml")
                for name in changed)
+    build = any(name.startswith("vendor/") or name in (
+        "Dockerfile", ".dockerignore", ".npmrc", "package.json", "pnpm-lock.yaml",
+        "next.config.ts", "postcss.config.mjs", "tsconfig.json",
+    ) for name in changed)
+    business = build or any(
+        name.startswith(("app/", "components/", "lib/", "hooks/", "i18n/", "types/", "public/", "api/", "utils/", "messages/"))
+        or (name.startswith("tests/") and name not in ("tests/deploy-inspector.test.sh", "tests/workflow-contract.test.ts"))
+        or name in ("scripts/check-memoia-sdk.mjs", "eslint.config.mjs", "vitest.config.ts", "open-next.config.ts", "next-env.d.ts", "cloudflare-env.d.ts")
+        for name in changed
+    )
+    return dict(business=business, tools=tools, build=build)
 
 
 @contextmanager
-def source_tree(checkout, temporary):
-    if checkout:
-        if run(["git", "status", "--porcelain"], cwd=ROOT, capture=True, timeout=30):
-            raise ValueError("CI_CHECKOUT_MUST_BE_CLEAN")
-        yield ROOT
-        return
+def source_tree(temporary):
     source = Path(temporary) / "source"
     source.mkdir()
     snapshot(source)
@@ -63,9 +80,12 @@ def snapshot(destination):
         shutil.copy2(origin, target)
 
 
-def verify(mode="full", base=None, checkout=False):
-    tools = tools_required(mode, base)
-    build = mode in ("full", "pr")
+def verify(mode="full", base=None):
+    scope = verification_scope(mode, base)
+    tools, build, business = scope["tools"], scope["build"], scope["business"]
+    if not any(scope.values()):
+        print("差异不影响 Inspector 业务、构建或部署工具；无须运行检查。", flush=True)
+        return
     env = local_env()
     commands = ["pnpm", "node"] + (["shellcheck"] if tools else []) + (["docker"] if build or tools else [])
     for command in commands:
@@ -75,6 +95,11 @@ def verify(mode="full", base=None, checkout=False):
         endpoint = run(["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"], env=env, capture=True, timeout=15)
         if not endpoint.startswith(("unix://", "npipe://")):
             raise ValueError("LOCAL_DOCKER_REQUIRED")
+    source_sha = None
+    if build:
+        source_sha = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True, timeout=30)
+        if len(source_sha) != 40 or any(c not in "0123456789abcdef" for c in source_sha):
+            raise ValueError("CI_SOURCE_SHA_INVALID")
     deadline = time.monotonic() + 1800
     container = "inspector-ci-" + uuid.uuid4().hex
     started = False
@@ -85,24 +110,28 @@ def verify(mode="full", base=None, checkout=False):
         return run(command, cwd=cwd, env=env, timeout=deadline - time.monotonic(), capture=capture)
 
     try:
-        with tempfile.TemporaryDirectory(prefix="inspector-local-ci-") as temporary, source_tree(checkout, temporary) as source:
+        with tempfile.TemporaryDirectory(prefix="inspector-local-ci-") as temporary, source_tree(temporary) as source:
             env.update(NPM_CONFIG_USERCONFIG="/dev/null", NPM_CONFIG_GLOBALCONFIG="/dev/null")
             step(["pnpm", "install", "--frozen-lockfile"], source)
             if tools:
                 step([sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests", "-v"], source)
-            # 每种模式复用业务检查，发布生产构建只由 Docker 完成。
-            for command in ("check:sdk", "typecheck", "lint"):
-                step(["pnpm", command], source)
-            tests = ["pnpm", "test"] + ([] if tools else ["--exclude", "tests/workflow-contract.test.ts"])
+            if business:
+                for command in ("check:sdk", "typecheck", "lint"):
+                    step(["pnpm", command], source)
+            tests = ["pnpm", "test"]
+            if not business:
+                tests.append("tests/workflow-contract.test.ts")
+            elif not tools:
+                tests.extend(["--exclude", "tests/workflow-contract.test.ts"])
             if mode == "quick":
                 env["NODE_OPTIONS"] = "--import=" + str(source / "scripts/offline-node.mjs")
             step(tests, source)
             env.pop("NODE_OPTIONS", None)
-            if mode != "quick":
+            if business and mode == "full":
                 step(["pnpm", "audit", "--prod", "--audit-level", "high", "--registry=https://registry.npmjs.org"], source)
             if build:
                 image_started = True
-                step(["docker", "build", "--tag", container, "--build-arg", "SOURCE_REVISION=local-verification", "."], source)
+                step(["docker", "build", "--tag", container, "--build-arg", "SOURCE_REVISION=" + source_sha, "."], source)
             if tools:
                 started = True
                 deployment_fixtures(step, source, env, container)
@@ -162,11 +191,10 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, cancel)
     try:
         parser = argparse.ArgumentParser()
-        parser.add_argument("--mode", choices=("quick", "full", "publish", "pr"), default="full")
+        parser.add_argument("--mode", choices=("quick", "full"), default="full")
         parser.add_argument("--base")
-        parser.add_argument("--checkout", action="store_true")
         args = parser.parse_args()
-        verify(args.mode, args.base, args.checkout)
+        verify(args.mode, args.base)
     except (ValueError, OSError, subprocess.SubprocessError, KeyboardInterrupt) as error:
         print(str(error) or "LOCAL_CI_CANCELLED", file=sys.stderr)
         sys.exit(1)

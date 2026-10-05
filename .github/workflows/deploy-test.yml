@@ -10,29 +10,7 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  validate-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - name: Require the selected current Test branch
-        env:
-          SELECTED_REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          [[ "$SELECTED_REF" == refs/heads/test ]] || { echo 'Select the Test branch explicitly' >&2; exit 1; }
-          [[ "$(git ls-remote origin refs/heads/test | cut -f1)" == "$GITHUB_SHA" ]] || { echo 'A newer Test commit exists' >&2; exit 1; }
-
-  verify:
-    needs: validate-test
-    uses: ./.github/workflows/verify.yml
-    with:
-      mode: publish
-
   publish-test:
-    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -47,6 +25,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Require the selected current Test branch
+        env:
+          SELECTED_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$SELECTED_REF" == refs/heads/test ]] || { echo 'Select the Test branch explicitly' >&2; exit 1; }
+          [[ "$(git ls-remote origin refs/heads/test | cut -f1)" == "$GITHUB_SHA" ]] || { echo 'A newer Test commit exists' >&2; exit 1; }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -76,8 +61,8 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           build-args: SOURCE_REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=test-amd64
+          cache-to: type=gha,scope=test-amd64,mode=min
           provenance: mode=max
       - name: Verify architectures, source labels, and anonymous pulls
         id: identity

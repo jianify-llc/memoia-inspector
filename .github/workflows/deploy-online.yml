@@ -27,14 +27,8 @@ jobs:
             echo "Tag SHA $GITHUB_SHA is not the current release HEAD $release_sha" >&2; exit 1;
           }
 
-  verify:
-    needs: validate-tag
-    uses: ./.github/workflows/verify.yml
-    with:
-      mode: publish
-
   build-platforms:
-    needs: verify
+    needs: validate-tag
     strategy:
       fail-fast: false
       matrix:

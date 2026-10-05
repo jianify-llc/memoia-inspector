@@ -54,7 +54,7 @@ class GitPushContract(unittest.TestCase):
         return result
 
     def ci(self, outcome):
-        code = f"from pathlib import Path\nimport sys\nassert sys.argv[1:4] == ['--mode', 'quick', '--base'] and len(sys.argv[4]) == 40\np=Path({str(self.marker)!r})\np.write_text(p.read_text()+'check\\n' if p.exists() else 'check\\n')\n"
+        code = f"from pathlib import Path\nimport sys\nassert sys.argv[1:4] == ['--mode', 'full', '--base'] and len(sys.argv[4]) == 40\np=Path({str(self.marker)!r})\np.write_text(p.read_text()+'check\\n' if p.exists() else 'check\\n')\n"
         if outcome == "fail":
             code += "raise SystemExit(1)\n"
         if outcome == "change":

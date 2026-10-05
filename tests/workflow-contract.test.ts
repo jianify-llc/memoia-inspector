@@ -27,7 +27,7 @@ describe('Test and Online release boundaries', () => {
   const testWorkflow = workflow('deploy-test.yml');
   const onlineWorkflow = workflow('deploy-online.yml');
 
-  it('bounds every actual runner and rejects wrong manual refs before Verify', () => {
+  it('bounds every actual runner and rejects wrong manual refs before registry writes', () => {
     for (const file of [verifyWorkflow, testWorkflow, onlineWorkflow]) {
       for (const job of Object.values(file.jobs)) {
         if (!job['runs-on']) continue;
@@ -41,8 +41,10 @@ describe('Test and Online release boundaries', () => {
       writeFileSync(git, '#!/bin/sh\nprintf "%s\\trefs/heads/test\\n" "$FIXTURE_HEAD"\n');
       chmodSync(git, 0o755);
       const sha = 'd'.repeat(40);
-      const steps = testWorkflow.jobs['validate-test'].steps!;
-      const script = steps[steps.length - 1].run!;
+      const steps = testWorkflow.jobs['publish-test'].steps!;
+      const guard = steps.findIndex(step => step.run?.includes('Select the Test branch explicitly'));
+      expect(guard).toBe(1);
+      const script = steps[guard].run!;
       for (const [ref, head, accepted] of [
         ['refs/heads/test', sha, true], ['refs/heads/main', sha, false], ['refs/heads/test', 'a'.repeat(40), false],
       ] as const) {
@@ -57,32 +59,31 @@ describe('Test and Online release boundaries', () => {
     }
   });
 
-  it('shares code checks but leaves release builds to Docker and keeps PR/full builds', () => {
+  it('cloud workflows only build and deliver while local verification owns checks', () => {
     expect(verifyWorkflow.on.push).toBeUndefined();
     expect(verifyWorkflow.on.pull_request).toEqual({ branches: ['main'] });
-    expect(verifyWorkflow.on).toHaveProperty('workflow_call');
     expect(verifyWorkflow.on).toHaveProperty('merge_group');
-    expect(testWorkflow.jobs.verify.uses).toBe('./.github/workflows/verify.yml');
-    expect(onlineWorkflow.jobs.verify.uses).toBe('./.github/workflows/verify.yml');
+    expect(verifyWorkflow.on.workflow_call).toBeUndefined();
     expect(verifyWorkflow.jobs.verify.environment).toBeUndefined();
-    const source = readFileSync(resolve(__dirname, '../.github/workflows/verify.yml'), 'utf8');
-    expect(source).toContain('python3 scripts/verify_local.py');
-    const local = readFileSync(resolve(__dirname, '../scripts/verify_local.py'), 'utf8');
-    for (const check of ['check:sdk', 'typecheck', 'lint', 'docker', 'audit', 'tests/deploy-inspector.test.sh']) {
-      expect(local).toContain(check);
+    const build = verifyWorkflow.jobs.verify.steps!.find(step => step.uses?.includes('docker/build-push-action'))!;
+    expect(build.with?.push).toBe(false);
+    expect(build.with?.platforms).toBe('linux/amd64');
+    const checkout = verifyWorkflow.jobs.verify.steps![0];
+    expect(checkout.with?.ref).toBe('${{ github.sha }}');
+    for (const file of ['verify.yml', 'deploy-test.yml', 'deploy-online.yml']) {
+      const source = readFileSync(resolve(__dirname, '../.github/workflows', file), 'utf8');
+      expect(source).not.toMatch(/verify_local|pnpm (?:test|lint|typecheck|audit|check:sdk|build)|setup-node|pnpm\/action-setup/);
     }
-    expect(local).not.toContain('"lint", "build"');
-    expect(local).toContain('mode in ("full", "pr")');
+    const local = readFileSync(resolve(__dirname, '../scripts/verify_local.py'), 'utf8');
+    for (const check of ['check:sdk', 'typecheck', 'lint', 'docker', 'audit', 'tests/deploy-inspector.test.sh']) expect(local).toContain(check);
     expect(local).not.toContain('15.5.26');
-    expect(source).not.toContain('docker/build-push-action');
-    expect(source).not.toContain('secrets.');
   });
 
   it('publishes Test only from test, not from release tags', () => {
     expect(testWorkflow.on).toEqual({ workflow_dispatch: null });
-    expect(testWorkflow.jobs.verify.needs).toBe('validate-test');
+    expect(Object.keys(testWorkflow.jobs)).toEqual(['publish-test', 'deploy-test']);
     expect(testWorkflow.on.push?.tags).toBeUndefined();
-    expect(testWorkflow.jobs['publish-test'].needs).toContain('verify');
+    expect(testWorkflow.jobs['publish-test'].needs).toBeUndefined();
     expect(testWorkflow.jobs['deploy-test'].environment).toMatchObject({ name: 'test' });
     expect(testWorkflow.jobs['deploy-test'].needs).toContain('publish-test');
     expect(readFileSync(resolve(__dirname, '../.github/workflows/deploy-test.yml'), 'utf8')).toContain('INSPECTOR_STAGE=test bash');
@@ -90,8 +91,8 @@ describe('Test and Online release boundaries', () => {
 
   it('builds only a release-HEAD tag and deploys its validated digest after approval', () => {
     expect(onlineWorkflow.on).toEqual({ push: { tags: ['v*'] } });
-    expect(onlineWorkflow.jobs.verify.needs).toBe('validate-tag');
-    expect(onlineWorkflow.jobs['build-platforms'].needs).toBe('verify');
+    expect(onlineWorkflow.jobs.verify).toBeUndefined();
+    expect(onlineWorkflow.jobs['build-platforms'].needs).toBe('validate-tag');
     expect(onlineWorkflow.jobs['build-online'].needs).toBe('build-platforms');
     expect(onlineWorkflow.jobs['deploy-online'].needs).toBe('build-online');
     expect(onlineWorkflow.jobs['deploy-online'].environment).toMatchObject({ name: 'online' });
@@ -109,11 +110,14 @@ describe('Test and Online release boundaries', () => {
   it('builds Test only on AMD64 and Online independently on native runners', () => {
     const build = testWorkflow.jobs['publish-test'].steps!.find(step => step.uses?.includes('docker/build-push-action'))!;
     expect(build.with?.platforms).toBe('linux/amd64');
+    expect(build.with?.['cache-to']).toBe('type=gha,scope=test-amd64,mode=min');
     expect(onlineWorkflow.jobs['build-platforms'].strategy?.matrix.include).toEqual([
       { arch: 'amd64', runner: 'ubuntu-24.04' }, { arch: 'arm64', runner: 'ubuntu-24.04-arm' },
     ]);
     const native = onlineWorkflow.jobs['build-platforms'].steps!.find(step => step.uses?.includes('docker/build-push-action'))!;
     expect(native.with?.outputs).toContain('push-by-digest=true');
+    expect(native.with?.['cache-from']).toBe('type=gha,scope=online-${{ matrix.arch }}');
+    expect(native.with?.['cache-to']).toBe('type=gha,scope=online-${{ matrix.arch }},mode=max');
     for (const name of ['deploy-test.yml', 'deploy-online.yml', 'verify.yml']) {
       const source = readFileSync(resolve(__dirname, '../.github/workflows', name), 'utf8');
       expect(source).not.toContain('setup-qemu');
