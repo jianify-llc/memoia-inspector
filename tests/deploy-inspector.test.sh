@@ -13,7 +13,7 @@ export MOCK_STATE="$fixture/state"
 A_SHA="$(printf 'a%.0s' {1..40})"
 B_SHA="$(printf 'b%.0s' {1..40})"
 A_IMAGE="ghcr.io/jianify/memoia-inspector@sha256:$(printf 'a%.0s' {1..64})"
-B_IMAGE="ghcr.io/jianify/memoia-inspector@sha256:$(printf 'b%.0s' {1..64})"
+B_IMAGE="ghcr.io/jianify-llc/memoia-inspector@sha256:$(printf 'b%.0s' {1..64})"
 export A_SHA B_SHA A_IMAGE B_IMAGE
 export PATH="$fixture/bin:$PATH"
 
@@ -82,6 +82,10 @@ assert_current() {
 deploy init-config >/dev/null
 [[ "$(stat -c '%u:%g:%a' "$fixture/service/.env")" == 0:0:600 ]]
 grep -Fxq 'OPENAI_API_KEY=' "$fixture/service/.env"
+# The org artifact is exercised by B below; foreign repositories cannot create state.
+expect_failure deploy apply "ghcr.io/unowned/memoia-inspector@sha256:$(printf 'c%.0s' {1..64})" "$B_SHA" 99
+expect_failure deploy apply "ghcr.io/jianify-llc/other@sha256:$(printf 'c%.0s' {1..64})" "$B_SHA" 99
+[[ ! -e "$fixture/service/.deploy/current" && ! -e "$fixture/service/.deploy/pending" ]]
 expect_failure deploy install-runtime-env <<< 'OPENAI_API_KEY=test'
 
 export MOCK_FAIL_IMAGE="$B_IMAGE"

@@ -78,7 +78,7 @@ fi
 image=${2:?Expected a manifest-addressed Inspector image}
 source_sha=${3:?Expected source commit SHA}
 run_id=${4:?Expected GitHub Actions run ID}
-[[ "$image" =~ ^ghcr\.io/jianify/memoia-inspector@sha256:[0-9a-f]{64}$ ]] || exit 2
+[[ "$image" =~ ^ghcr\.io/(jianify|jianify-llc)/memoia-inspector@sha256:[0-9a-f]{64}$ ]] || exit 2
 [[ "$source_sha" =~ ^[0-9a-f]{40}$ && "$run_id" =~ ^[0-9]+$ ]] || exit 2
 [[ -d "$root" && ! -L "$root" && "$(stat -c '%u:%g:%a' "$root")" == 0:0:700 ]] || exit 2
 [[ -d "$root/.deploy" && ! -L "$root/.deploy" && "$(stat -c '%u:%g:%a' "$root/.deploy")" == 0:0:700 ]] || exit 2

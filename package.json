@@ -4,6 +4,9 @@
   "private": true,
   "packageManager": "pnpm@10.12.4",
   "scripts": {
+    "ci:local": "python3 scripts/verify_local.py",
+    "push:test": "python3 scripts/test_push.py push",
+    "hooks:install": "python3 scripts/test_push.py install",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
