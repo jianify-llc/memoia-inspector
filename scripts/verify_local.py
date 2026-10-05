@@ -128,7 +128,11 @@ def cleanup_owned(name, container, image):
         except (OSError, subprocess.SubprocessError) as error:
             errors.append(str(error))
     if errors:
-        raise ValueError("LOCAL_CI_CLEANUP_FAILED: " + "; ".join(errors))
+        message = "LOCAL_CI_CLEANUP_FAILED: " + "; ".join(errors)
+        if sys.exc_info()[1] is not None:
+            print(message, file=sys.stderr)
+        else:
+            raise ValueError(message)
 
 
 def deployment_fixtures(step, source, env, container):

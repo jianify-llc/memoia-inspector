@@ -1,11 +1,13 @@
 """源码快照及缺依赖反例，不读实际业务配置或启动共享服务。"""
 import importlib.util
+import io
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stderr
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE))
@@ -90,6 +92,16 @@ class LocalVerificationContract(unittest.TestCase):
             with patch.object(module, "run", side_effect=outcomes):
                 with self.assertRaisesRegex(ValueError, "LOCAL_CI_CLEANUP_FAILED"):
                     module.cleanup_owned("fixture-owned", True, False)
+
+    def test_primary_failure_is_not_replaced_by_cleanup_failure(self):
+        stderr = io.StringIO()
+        with patch.object(module, "run", side_effect=subprocess.CalledProcessError(1, "docker")), redirect_stderr(stderr):
+            with self.assertRaisesRegex(RuntimeError, "PRIMARY_FAILURE"):
+                try:
+                    raise RuntimeError("PRIMARY_FAILURE")
+                finally:
+                    module.cleanup_owned("fixture-owned", True, False)
+        self.assertIn("LOCAL_CI_CLEANUP_FAILED", stderr.getvalue())
 
 
 if __name__ == "__main__":
