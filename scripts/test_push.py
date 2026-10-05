@@ -15,7 +15,7 @@ CI_TIMEOUT = 1800
 
 def local_env():
     # 运行工具所需环境；业务、数据库、模型及平台凭据不传给本地 CI。
-    names = ("PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SystemRoot", "LANG", "LC_ALL")
+    names = ("PATH", "HOME", "PNPM_HOME", "TMPDIR", "TMP", "TEMP", "SystemRoot", "LANG", "LC_ALL")
     result = dict({key: os.environ[key] for key in names if key in os.environ},
                   CI="true", NEXT_TELEMETRY_DISABLED="1", PYTHONDONTWRITEBYTECODE="1")
     # 依赖下载仍需本机网络代理；只传不含认证信息的传输配置。

@@ -60,6 +60,8 @@ Missing/unreadable base expands tool checks; `push:test` obtains the exact remot
 
 Local runs copy source excluding business .env files. Cloud `--checkout` validates a clean candidate directly, with history prefetched and checkout credentials disabled. Business subprocesses use an environment allowlist without deployment/platform secrets. Only credential-free proxy settings survive dependency preparation. Fixtures run with no network; cleanup inspects/removes only this batch's unique container/image and fails on uncertain cleanup. Budget is 30 minutes. No mode calls real Memoia/models or proves Access acceptance.
 
+The allowlist retains the pnpm tool directory `PNPM_HOME`, so dependency installation uses the same package store that `setup-node` caches. Registry, platform and business credentials remain excluded.
+
 Long checks finish before the push connection opens. The pre-push hook validates the exact commit and remote Test baseline for that invocation, refuses dirty or changed source, stale proof, force updates and Test deletion. Direct Test pushes are refused. Internal proof is not a security credential or cache and must not be forged/reused; do not bypass hooks. Installation refuses an existing hook manager rather than overwriting it. Update/install each checkout and verify default-branch workflow registration after merging; do not dispatch Actions merely to test that ordinary pushes remain quiet.
 
 Manual Test selection is checked against the current Test branch before Verify and image construction. `INSPECTOR_TEST_DEPLOY_ENABLED`, package identity/anonymous-pull checks and existing runtime recovery gates still apply. Changes to this source do not establish that a new organization GHCR package can be pulled or that Online is ready.

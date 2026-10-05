@@ -111,11 +111,33 @@ class GitPushContract(unittest.TestCase):
 
 
 class ExecutionContract(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("pnpm"), "pnpm is required for the package-store contract")
+    def test_filtered_install_keeps_the_actions_pnpm_store_path(self):
+        with tempfile.TemporaryDirectory(prefix="pnpm-store-contract-") as task_directory:
+            task_home = Path(task_directory) / "home"
+            task_pnpm_home = Path(task_directory) / "setup-pnpm/node_modules/.bin"
+            task_home.mkdir()
+            task_pnpm_home.mkdir(parents=True)
+            action_env = {"PATH": os.environ["PATH"], "HOME": str(task_home),
+                          "PNPM_HOME": str(task_pnpm_home)}
+            with patch.dict(os.environ, {"PNPM_HOME": str(task_pnpm_home)}):
+                install_env = module.local_env()
+            # HOME 只作用于测试子进程，不改主机或当前进程的用户配置。
+            install_env["HOME"] = str(task_home)
+            command = ["pnpm", "store", "path", "--silent"]
+            expected = subprocess.run(command, cwd=task_directory, env=action_env,
+                                      text=True, capture_output=True, check=True, timeout=30).stdout.strip()
+            actual = subprocess.run(command, cwd=task_directory, env=install_env,
+                                    text=True, capture_output=True, check=True, timeout=30).stdout.strip()
+            self.assertTrue(expected.startswith(str(task_pnpm_home) + os.sep), expected)
+            self.assertEqual(actual, expected)
+
     def test_platform_credentials_are_not_inherited(self):
-        with patch.dict(os.environ, {"DATABASE_URL": "shared", "OPENAI_API_KEY": "private", "GH_TOKEN": "private"}):
-            self.assertNotIn("DATABASE_URL", module.local_env())
-            self.assertNotIn("OPENAI_API_KEY", module.local_env())
-            self.assertNotIn("GH_TOKEN", module.local_env())
+        credentials = {"DATABASE_URL": "shared", "REDIS_URL": "shared", "OPENAI_API_KEY": "private",
+                       "MEMOBASE_LLM_API_KEY": "private", "GH_TOKEN": "private", "GITHUB_TOKEN": "private",
+                       "CLOUDFLARE_API_TOKEN": "private", "DEPLOY_SSH_PRIVATE_KEY": "private"}
+        with patch.dict(os.environ, credentials):
+            self.assertTrue(set(credentials).isdisjoint(module.local_env()))
 
     def test_transport_proxy_is_retained_without_credentials(self):
         with patch.dict(os.environ, {"HTTPS_PROXY": "http://127.0.0.1:7890"}):
