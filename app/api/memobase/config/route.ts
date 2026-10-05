@@ -2,6 +2,7 @@ import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoBaseClient } from "@/utils/memobase/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 /**
  * 获取项目配置
@@ -24,7 +25,9 @@ export async function GET() {
 export async function PUT(req: Request) {
   const originError = rejectCrossOriginMutation(req);
   if (originError) return originError;
-  const { config } = await req.json();
+  const body = await readJsonObject(req);
+  if (body.error) return body.error;
+  const { config } = body.data;
   if (!config) {
     return createApiError("参数错误", 400);
   }

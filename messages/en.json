@@ -123,6 +123,7 @@
     "messages": "Select source message IDs whose contributions should be deleted",
     "deleteMessages": "Delete selected messages",
     "profiles": "Current profiles and their sources",
+    "awaitConfirmation": "Memory changes are awaiting confirmation. Open Sources & history to query the operation.",
     "history": "Profile revision history (withdrawn evidence excluded)",
     "snapshot": "View valid profile snapshot",
     "added": "Added or updated profiles",

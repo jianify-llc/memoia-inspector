@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoiaError } from "@jianify/memoia";
 
-const sdk = vi.hoisted(() => ({ listSources: vi.fn(), listOperations: vi.fn(), getProfiles: vi.fn(), getHistory: vi.fn(), getSource: vi.fn(), deleteMessages: vi.fn(), getOperationByKey: vi.fn(), retryOperation: vi.fn() }));
+const sdk = vi.hoisted(() => ({ listSources: vi.fn(), listOperations: vi.fn(), getProfiles: vi.fn(), getHistory: vi.fn(), getSource: vi.fn(), deleteMessages: vi.fn(), getOperationByKey: vi.fn(), getOperation: vi.fn(), retryOperation: vi.fn() }));
 const factory = vi.hoisted(() => ({ client: vi.fn() }));
 vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client }));
 import { GET as provenance } from "@/app/api/memoia/user/[uid]/provenance/route";
@@ -90,6 +90,15 @@ describe("v2 provenance management", () => {
   it("rejects malformed JSON before calling Memoia", async () => {
     const response = await retract(new Request("http://localhost", { method: "POST", headers: mutationHeaders, body: "{" }), params);
     expect(response.status).toBe(400);
+    expect(sdk.deleteMessages).not.toHaveBeenCalled();
+  });
+
+  it("queries an accepted operation by ID after lost recovery acknowledgement", async () => {
+    sdk.getOperation.mockResolvedValue({ status: "completed" });
+    const response = await operation(new Request("http://localhost?operation_id=known-op"), params);
+    expect(response.status).toBe(200);
+    expect(sdk.getOperation).toHaveBeenCalledWith("user", "known-op");
+    expect(sdk.retryOperation).not.toHaveBeenCalled();
     expect(sdk.deleteMessages).not.toHaveBeenCalled();
   });
 

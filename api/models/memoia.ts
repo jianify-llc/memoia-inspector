@@ -15,5 +15,6 @@ export const getSource = (uid: string, sourceId: string, page: SourceQuery = {})
   service.get(`${userPath(uid)}/sources/${encodeURIComponent(sourceId)}`, { limit: PROVENANCE_PAGE_SIZE, ...page });
 export const deleteSourceMessages = (uid: string, sourceId: string, messageIds: string[], key: string): Promise<Res<Operation>> =>
   service.post(`${userPath(uid)}/sources/${encodeURIComponent(sourceId)}/messages/delete`, { idempotency_key: key, message_ids: messageIds });
-export const getOperation = (uid: string, key: string): Promise<Res<Operation>> => service.get(`${userPath(uid)}/operations`, { key });
+export const getOperation = (uid: string, key: string | null, operationId?: string): Promise<Res<Operation>> =>
+  service.get(`${userPath(uid)}/operations`, key ? { key } : { operation_id: operationId });
 export const retryOperation = (uid: string, operationId: string): Promise<Res<Operation>> => service.post(`${userPath(uid)}/operations`, { operation_id: operationId });

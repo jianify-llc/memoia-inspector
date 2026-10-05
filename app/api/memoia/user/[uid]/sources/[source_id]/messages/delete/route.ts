@@ -2,6 +2,7 @@ import { createApiError, createApiResponse } from "@/lib/api-response";
 import { memoiaApiError } from "@/lib/memoia-api-response";
 import { memoiaClient } from "@/utils/memoia/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 export async function POST(request: Request, { params }: { params: Promise<{ uid: string; source_id: string }> }) {
   const originError = rejectCrossOriginMutation(request);
@@ -9,8 +10,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ uid
   try {
     const client = await memoiaClient();
     if (!client) return createApiError("Project credentials are required", 401);
-    let input: unknown;
-    try { input = await request.json(); } catch { return createApiError("Invalid JSON", 400); }
+    const body = await readJsonObject(request);
+    if (body.error) return body.error;
+    const input: unknown = body.data;
     const { uid, source_id } = await params;
     // Runtime validation belongs to the generated SDK contract, not a second
     // handwritten copy of the API's message/key rules.

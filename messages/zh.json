@@ -123,6 +123,7 @@
     "messages": "选择需要删除贡献的来源消息 ID",
     "deleteMessages": "删除选定消息",
     "profiles": "当前画像与来源",
+    "awaitConfirmation": "记忆变更尚待确认，请到来源与历史查询操作结果。",
     "history": "画像版本历史（排除已撤回证据）",
     "snapshot": "查看有效画像快照",
     "added": "新增或更新的画像",

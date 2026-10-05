@@ -2,6 +2,7 @@ import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 /**
  * 删除 profile
@@ -40,7 +41,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ profile_
     return createApiError("Bad Request", 400);
   }
 
-  const { content, topic, sub_topic } = await req.json();
+  const body = await readJsonObject(req);
+  if (body.error) return body.error;
+  const { content, topic, sub_topic } = body.data;
   if (!content || !topic || !sub_topic) {
     return createApiError("Bad Request", 400);
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import type { Operation, Source } from "@jianify/memoia";
 import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, type UserProvenanceData } from "@/api/models/memoia";
@@ -12,11 +12,17 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { canResumeOperation } from "@/lib/operation-recovery";
+import { canResumeOperation, hasUnconfirmedMutation, type ProvenanceMutation } from "@/lib/operation-recovery";
 import { appendSourcePage, type SourceCollection } from "@/lib/source-page";
 
-/** Provenance is read on demand, without a second cache or stored profile snapshot. */
-export function UserProvenance({ userId }: { userId: string }) {
+/** Provenance reads locally; the detail owner coordinates mutation and memory refresh. */
+export function UserProvenance({ userId, mutation, setMutation, onInvalidate, onResolved }: {
+  userId: string;
+  mutation: ProvenanceMutation;
+  setMutation: Dispatch<SetStateAction<ProvenanceMutation>>;
+  onInvalidate: () => void;
+  onResolved: () => void;
+}) {
   const t = useTranslations("provenance");
   const [data, setData] = useState<UserProvenanceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,15 +32,18 @@ export function UserProvenance({ userId }: { userId: string }) {
   const [selected, setSelected] = useState<Source | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [operation, setOperation] = useState<Operation | null>(null);
+  const { busy, pendingKey, operation } = mutation;
+  const unresolved = hasUnconfirmedMutation(mutation);
+  const setBusy = (value: boolean) => setMutation((current) => ({ ...current, busy: value }));
+  const setPendingKey = (value: string | null) => setMutation((current) => ({ ...current, pendingKey: value }));
+  const setOperation = (value: Operation | null) => setMutation((current) => ({ ...current, operation: value }));
 
   useEffect(() => {
     const controller = new AbortController();
     setData(null);
     setSelected(null);
     setSelectedMessages([]);
+    if (unresolved) { setLoading(false); return () => controller.abort(); }
     setLoading(true);
     setError(false);
     void getUserProvenance(userId, controller.signal, page).then((response) => {
@@ -44,7 +53,7 @@ export function UserProvenance({ userId }: { userId: string }) {
     }).catch(() => { if (!controller.signal.aborted) setError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [userId, revision, page]);
+  }, [userId, revision, page, unresolved]);
 
   const acceptOperation = (result: Operation) => {
     setOperation(result);
@@ -53,6 +62,7 @@ export function UserProvenance({ userId }: { userId: string }) {
       setSelected(null);
       setSelectedMessages([]);
       setRevision((value) => value + 1);
+      onResolved();
       toast.success(t("completed"));
     } else if (result.status === "failed") {
       // Failed/unknown is not successful deletion, and a fresh key must not hide
@@ -62,18 +72,22 @@ export function UserProvenance({ userId }: { userId: string }) {
   };
 
   const deleteMessages = async () => {
-    if (!selected || !selectedMessages.length || pendingKey) return;
+    if (!selected || !selectedMessages.length || unresolved || busy) return;
     const key = `inspector:delete-messages:${crypto.randomUUID()}`;
     setPendingKey(key);
     setOperation(null);
     setBusy(true);
+    onInvalidate();
     try {
       const response = await deleteSourceMessages(userId, selected.source_id, selectedMessages, key);
       if (response.code !== 0 || !response.data) {
         // Authentication/parameter errors were rejected before acceptance.
         // An unclassified/server failure may have committed; retain its key.
         // 413 can occur after accepted withdrawal hid evidence; query its key.
-        if ([400, 401, 403, 422].includes(response.code)) setPendingKey(null);
+        if ([400, 401, 403, 415, 422].includes(response.code)) {
+          setPendingKey(null);
+          onResolved();
+        }
         toast.error(response.message === "OUTCOME_UNKNOWN" ? t("unknown") : response.message || t("failed"));
         return;
       }
@@ -83,10 +97,10 @@ export function UserProvenance({ userId }: { userId: string }) {
   };
 
   const query = async () => {
-    if (!pendingKey) return;
+    if (!pendingKey && !operation) return;
     setBusy(true);
     try {
-      const response = await getOperation(userId, pendingKey);
+      const response = await getOperation(userId, pendingKey, operation?.operation_id);
       if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
       acceptOperation(response.data);
     } catch { toast.error(t("failed")); }
@@ -94,7 +108,7 @@ export function UserProvenance({ userId }: { userId: string }) {
   };
 
   const inspect = async (sourceId: string) => {
-    if (pendingKey) return;
+    if (unresolved || busy) return;
     setBusy(true);
     setSelected(null);
     setSelectedMessages([]);
@@ -108,7 +122,9 @@ export function UserProvenance({ userId }: { userId: string }) {
 
   const recover = async (known = operation) => {
     if (!known) return;
+    setOperation(known);
     setBusy(true);
+    onInvalidate();
     try {
       const response = await retryOperation(userId, known.operation_id);
       if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
@@ -118,7 +134,7 @@ export function UserProvenance({ userId }: { userId: string }) {
   };
 
   const more = async (collection: SourceCollection) => {
-    if (!selected || busy || pendingKey) return;
+    if (!selected || busy || unresolved) return;
     const offset = collection === "messages" ? selected.next_message_offset :
       collection === "blobs" ? selected.next_blob_offset : selected.next_evidence_offset;
     if (offset === null) return;
@@ -137,15 +153,15 @@ export function UserProvenance({ userId }: { userId: string }) {
     <div className="h-full space-y-4 overflow-y-auto p-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-semibold">{t("title")}</h2>
-        <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => setRevision((value) => value + 1)}>{t("refresh")}</Button>
+        <Button variant="outline" size="sm" disabled={loading || busy || unresolved} onClick={() => setRevision((value) => value + 1)}>{t("refresh")}</Button>
       </div>
       <p className="text-sm text-muted-foreground">{t("scope")}</p>
       {loading ? <p role="status">{t("loading")}</p> : error ? <p role="alert">{t("failed")}</p> : null}
-      {pendingKey ? (
+      {unresolved ? (
         <Card>
           <CardContent className="space-y-2 pt-4">
             <p role="status">{operation?.status === "processing" ? t("processing") : t("unknown")}</p>
-            <code className="block break-all text-xs">{pendingKey}</code>
+            <code className="block break-all text-xs">{pendingKey || operation?.operation_id}</code>
             <Button size="sm" disabled={busy} onClick={() => void query()}>{t("query")}</Button>
             {operation && canResumeOperation(operation) ? (
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void recover()}>{t("recover")}</Button>
@@ -153,7 +169,7 @@ export function UserProvenance({ userId }: { userId: string }) {
           </CardContent>
         </Card>
       ) : null}
-      {data ? (
+      {data && !unresolved ? (
         <>
           <h3 className="font-semibold">{t("sources")}</h3>
           {!data.sources.length ? <p>{t("empty")}</p> : data.sources.map((source) => (
@@ -162,7 +178,7 @@ export function UserProvenance({ userId }: { userId: string }) {
                 {source.legacy ? <Badge variant="secondary">legacy</Badge> : null}
                 <p className="break-all text-xs text-muted-foreground">{source.source_id}</p>
                 <p className="text-xs">{new Date(source.created_at).toLocaleString()}</p>
-                <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void inspect(source.source_id)}>{t("inspect")}</Button>
+                <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void inspect(source.source_id)}>{t("inspect")}</Button>
               </CardContent>
             </Card>
           ))}
@@ -178,7 +194,7 @@ export function UserProvenance({ userId }: { userId: string }) {
                     <p>{blob.message_ids.join(", ")}</p>
                   </div>
                 ))}
-                {selected.next_blob_offset !== null ? <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void more("blobs")}>{t("moreBlobs")}</Button> : null}
+                {selected.next_blob_offset !== null ? <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void more("blobs")}>{t("moreBlobs")}</Button> : null}
                 {selected.evidence.map((fact) => (
                   <div key={fact.fact_id} className="space-y-1 border-b pb-2">
                     <p>{fact.content}</p>
@@ -186,17 +202,17 @@ export function UserProvenance({ userId }: { userId: string }) {
                     <p className="break-all text-xs">{t("support")}: {fact.support_groups.map((group) => group.join(" + ")).join(" | ")}</p>
                   </div>
                 ))}
-                {selected.next_evidence_offset !== null ? <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void more("evidence")}>{t("moreEvidence")}</Button> : null}
+                {selected.next_evidence_offset !== null ? <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void more("evidence")}>{t("moreEvidence")}</Button> : null}
                 <p className="text-sm">{t("messages")}</p>
                 {selected.message_ids.filter((id) => !selected.deleted_message_ids.includes(id)).map((id) => (
                   <label key={id} className="flex items-center gap-2 break-all text-sm">
-                    <input type="checkbox" checked={selectedMessages.includes(id)} disabled={busy || !!pendingKey}
+                    <input type="checkbox" checked={selectedMessages.includes(id)} disabled={busy || unresolved}
                       onChange={(event) => setSelectedMessages((values) => event.target.checked ? [...values, id] : values.filter((value) => value !== id))} />
                     {id}
                   </label>
                 ))}
-                {selected.next_message_offset !== null ? <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void more("messages")}>{t("moreMessages")}</Button> : null}
-                <Button variant="destructive" disabled={!selectedMessages.length || busy || !!pendingKey} onClick={() => setConfirm(true)}>{t("deleteMessages")}</Button>
+                {selected.next_message_offset !== null ? <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void more("messages")}>{t("moreMessages")}</Button> : null}
+                <Button variant="destructive" disabled={!selectedMessages.length || busy || unresolved} onClick={() => setConfirm(true)}>{t("deleteMessages")}</Button>
               </CardContent>
             </Card>
           ) : null}
@@ -240,15 +256,15 @@ export function UserProvenance({ userId }: { userId: string }) {
                 <p className="break-all text-xs">{existing.operation_id}</p>
                 {existing.error ? <p>{existing.error.code}</p> : null}
                 {canResumeOperation(existing) ? (
-                  <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void recover(existing)}>{t("recover")}</Button>
+                  <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void recover(existing)}>{t("recover")}</Button>
                 ) : null}
               </CardContent>
             </Card>
           ))}
           <div className="flex items-center justify-between gap-2">
-            <Button variant="outline" disabled={page === 0 || busy || !!pendingKey} onClick={() => setPage((value) => value - 1)}>{t("previous")}</Button>
+            <Button variant="outline" disabled={page === 0 || busy || unresolved} onClick={() => setPage((value) => value - 1)}>{t("previous")}</Button>
             <span className="text-sm">{t("page", { number: page + 1 })}</span>
-            <Button variant="outline" disabled={busy || !!pendingKey || ![data.sources, data.history, data.operations].some((items) => items.length === PROVENANCE_PAGE_SIZE)} onClick={() => setPage((value) => value + 1)}>{t("next")}</Button>
+            <Button variant="outline" disabled={busy || unresolved || ![data.sources, data.history, data.operations].some((items) => items.length === PROVENANCE_PAGE_SIZE)} onClick={() => setPage((value) => value + 1)}>{t("next")}</Button>
           </div>
         </>
       ) : null}

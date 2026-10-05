@@ -45,8 +45,8 @@ export const deleteUser = (): Promise<Res<null>> =>
 export const deleteUserByUid = (uid: string): Promise<Res<null>> =>
   service.delete(`/api/memobase/user/${uid}`);
 
-export const getProjectUsers = (pid: string, search: string, order_by: string, order_desc: boolean, limit: number, offset: number) => {
-  return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset });
+export const getProjectUsers = (pid: string, search: string, order_by: string, order_desc: boolean, limit: number, offset: number, signal?: AbortSignal) => {
+  return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, undefined, signal);
 }
 
 export const getProjectUsage = (last_days: number = 7) => {
@@ -64,6 +64,6 @@ export const updateConfig = (config: string): Promise<Res<null>> =>
     config,
   });
 
-export const getProjectUserMemories = (uid: string) => {
-  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[] }>>(`/api/memobase/user/${uid}/memories`);
+export const getProjectUserMemories = (uid: string, signal?: AbortSignal) => {
+  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[] }>>(`/api/memobase/user/${uid}/memories`, undefined, undefined, signal);
 }

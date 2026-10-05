@@ -3,6 +3,7 @@ import { jsonSchema, streamText } from "ai";
 
 import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 export const maxDuration = 30;
 
@@ -25,13 +26,14 @@ export async function POST(req: Request) {
   if (!isPlaygroundConfigured()) {
     return new Response("Playground model is not configured", { status: 503 });
   }
+  const body = await readJsonObject(req);
+  if (body.error) return body.error;
+  const { messages, tools } = body.data;
 
   try {
     const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
 
     const context = await user.context(750);
-
-    const { messages, tools } = await req.json();
 
     const finalSystemPrompt = `You're Memobase Assistant, a helpful assistant that demonstrates the capabilities of Memobase Memory. \n${context}`;
     const result = streamText({

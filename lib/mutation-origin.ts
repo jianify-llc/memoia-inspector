@@ -23,9 +23,6 @@ export function rejectCrossOriginMutation(request: Request) {
       expected = httpOrigin(`${new URL(origin).protocol}//${request.headers.get("host")}`);
     }
     if (origin !== expected) throw new Error("Origin mismatch");
-    if (request.body !== null && request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
-      return createApiError("JSON Content-Type is required", 415);
-    }
     return null;
   } catch { /* Unknown, opaque and sibling origins fail closed before SDK calls. */ }
   return createApiError("Cross-origin management requests are not allowed", 403);

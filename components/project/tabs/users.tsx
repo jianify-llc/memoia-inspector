@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
@@ -27,14 +27,12 @@ import {
 } from "@/components/ui/pagination";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { UserMemory } from "@/components/user-memory";
-import { UserProvenance } from "@/components/user-provenance";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UserMemoryDetails } from "@/components/user-memory-details";
+import type { ProvenanceMutation } from "@/lib/operation-recovery";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,7 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { JsonDownload } from "@/components/json-download";
 
-import { UserProfile, UserEvent, ProjectUser } from "@memobase/memobase";
+import { ProjectUser } from "@memobase/memobase";
 import { ProjectUsersOrderBy } from "@/types";
 import { deleteUserByUid, getProjectUserMemories } from "@/api/models/memobase";
 import { getProjectUsers } from "@/api/models/memobase";
@@ -58,6 +56,8 @@ import { ArrowDown01, ArrowDown10, ArrowDownUp } from "lucide-react";
 import { toast } from "sonner";
 
 import { Project } from "@/types";
+
+const EMPTY_MUTATION: ProvenanceMutation = { pendingKey: null, operation: null, busy: false };
 
 export default function Users({ project }: { project: Project }) {
   const t = useTranslations("project.users");
@@ -73,11 +73,16 @@ export default function Users({ project }: { project: Project }) {
   const [limit] = useState(10);
   const [page, setPage] = useState(1);
 
-  const [memoriesLoading, setMemoriesLoading] = useState(true);
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [events, setEvents] = useState<UserEvent[]>([]);
   const [open, setOpen] = useState(false);
   const [memoriesUserId, setMemoriesUserId] = useState<string | null>(null);
+  const [downloadingUserId, setDownloadingUserId] = useState<string | null>(null);
+  const [invalidUserIds, setInvalidUserIds] = useState<string[]>([]);
+  const [mutations, setMutations] = useState<Record<string, ProvenanceMutation>>({});
+  const usersRequest = useRef<AbortController | null>(null);
+  const downloads = useRef(new Map<AbortController, string>());
+  const mounted = useRef(true);
+  const currentProject = useRef(project);
+  currentProject.current = project;
 
   const [selectedUser, setSelectedUser] = useState<ProjectUser | null>(null);
 
@@ -100,6 +105,11 @@ export default function Users({ project }: { project: Project }) {
   };
 
   const fetchUsers = useCallback(async () => {
+    if (!mounted.current || currentProject.current.endpoint_url !== project.endpoint_url ||
+      currentProject.current.endpoint_token !== project.endpoint_token) return false;
+    usersRequest.current?.abort();
+    const controller = new AbortController();
+    usersRequest.current = controller;
     try {
       const res = await getProjectUsers(
         "",
@@ -107,32 +117,40 @@ export default function Users({ project }: { project: Project }) {
         orderBy,
         orderDesc,
         limit,
-        limit * (page - 1)
+        limit * (page - 1),
+        controller.signal
       );
+      if (controller.signal.aborted) return false;
       if (res.code === 401) {
         router.push("/login");
       }
       if (res.code === 0 && res.data) {
         setUsers(res.data.users);
         setCount(res.data.count);
+        return true;
       } else {
         toast.error(res.message || t("getUsersFailed"));
       }
     } catch {
-      toast.error(t("getUsersFailed"));
+      if (!controller.signal.aborted) toast.error(t("getUsersFailed"));
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
     }
-  }, [limit, orderBy, orderDesc, page, router, debouncedSearch, t]);
+    return false;
+  }, [limit, orderBy, orderDesc, page, router, debouncedSearch, t, project.endpoint_url, project.endpoint_token]);
 
-  const fetchMemories = async (uid: string) => {
-    setMemoriesLoading(true);
+  const downloadMemories = async (uid: string) => {
+    if (invalidUserIds.includes(uid)) return;
+    const controller = new AbortController();
+    downloads.current.set(controller, uid);
+    setDownloadingUserId(uid);
     try {
-      const res = await getProjectUserMemories(uid);
+      const res = await getProjectUserMemories(uid, controller.signal);
+      if (controller.signal.aborted) return;
       if (res.code === 401) {
         router.push("/login");
       }
       if (res.code === 0 && res.data) {
-        setProfiles(res.data.profiles);
-        setEvents(res.data.events);
         return {
           profiles: res.data.profiles,
           events: res.data.events,
@@ -141,19 +159,49 @@ export default function Users({ project }: { project: Project }) {
         toast.error(res.message || t("getMemoriesFailed"));
       }
     } catch {
-      toast.error(t("getMemoriesFailed"));
+      if (!controller.signal.aborted) toast.error(t("getMemoriesFailed"));
     } finally {
-      setMemoriesLoading(false);
+      downloads.current.delete(controller);
+      if (!controller.signal.aborted) setDownloadingUserId(null);
     }
   };
+
+  const invalidateMemories = (uid: string) => {
+    usersRequest.current?.abort();
+    for (const [request, targetUserId] of downloads.current) {
+      if (targetUserId === uid) request.abort();
+    }
+    setDownloadingUserId((value) => value === uid ? null : value);
+    setLoading(false);
+    setInvalidUserIds((values) => values.includes(uid) ? values : [...values, uid]);
+  };
+
+  const refreshAfterMutation = async (uid: string) => {
+    if (await fetchUsers()) setInvalidUserIds((values) => values.filter((value) => value !== uid));
+  };
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!project) return;
     setLoading(true);
-    fetchUsers().finally(() => {
-      setLoading(false);
-    });
+    void fetchUsers();
+    return () => usersRequest.current?.abort();
   }, [fetchUsers, project]);
+
+  useEffect(() => {
+    const activeDownloads = downloads.current;
+    setOpen(false);
+    setMemoriesUserId(null);
+    setInvalidUserIds([]);
+    setMutations({});
+    setUsers([]);
+    setCount(0);
+    return () => { for (const request of activeDownloads.keys()) request.abort(); };
+  }, [project.endpoint_url, project.endpoint_token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -171,30 +219,15 @@ export default function Users({ project }: { project: Project }) {
           <SheetDescription>Assistant</SheetDescription>
         </SheetHeader>
 
-        <SheetContent side="right" className="p-0">
-          <Tabs defaultValue="memories" className="h-full overflow-hidden pt-4">
-            <TabsList className="mx-4">
-              <TabsTrigger value="memories">{t("table.memories")}</TabsTrigger>
-              <TabsTrigger value="provenance">{t("provenance")}</TabsTrigger>
-            </TabsList>
-            <TabsContent value="memories" className="min-h-0 flex-1 overflow-hidden">
-          <UserMemory
-            isLoading={memoriesLoading}
-            setIsLoading={setMemoriesLoading}
-            profiles={profiles}
-            events={events}
-            profilesFold
-            canDownload={
-              !memoriesLoading && (!!profiles.length || !!events.length)
-            }
-            downloadFileName={`memobase-${memoriesUserId}.json`}
-          />
-            </TabsContent>
-            <TabsContent value="provenance" className="min-h-0 flex-1 overflow-hidden">
-              {memoriesUserId ? <UserProvenance key={memoriesUserId} userId={memoriesUserId} /> : null}
-            </TabsContent>
-          </Tabs>
-        </SheetContent>
+        {memoriesUserId ? <UserMemoryDetails key={memoriesUserId} userId={memoriesUserId} open={open}
+          mutation={mutations[memoriesUserId] || EMPTY_MUTATION}
+          setMutation={(update) => {
+            if (!mounted.current || currentProject.current.endpoint_url !== project.endpoint_url ||
+              currentProject.current.endpoint_token !== project.endpoint_token) return;
+            setMutations((values) => ({ ...values, [memoriesUserId]: typeof update === "function" ?
+              update(values[memoriesUserId] || EMPTY_MUTATION) : update }));
+          }}
+          onInvalidate={invalidateMemories} onResolved={refreshAfterMutation} /> : null}
       </Sheet>
 
       <Card>
@@ -298,10 +331,10 @@ export default function Users({ project }: { project: Project }) {
                     <TableRow key={user.id}>
                       <TableCell>{user.id}</TableCell>
                       <TableCell className="pl-5">
-                        {user.profile_count.toLocaleString()}
+                        {invalidUserIds.includes(user.id) ? "—" : user.profile_count.toLocaleString()}
                       </TableCell>
                       <TableCell className="pl-5">
-                        {user.event_count.toLocaleString()}
+                        {invalidUserIds.includes(user.id) ? "—" : user.event_count.toLocaleString()}
                       </TableCell>
                       <TableCell>
                         {new Date(user.created_at).toLocaleString()}
@@ -316,27 +349,24 @@ export default function Users({ project }: { project: Project }) {
                           onClick={() => {
                             setMemoriesUserId(user.id);
                             setOpen(true);
-                            fetchMemories(user.id);
                           }}
                         >
                           {t("table.memories")}
                         </Button>
                         <JsonDownload
                           fileName={`memobase-${user.id}.json`}
-                          beforeEvent={async () => {
-                            setMemoriesUserId(user.id);
-                            return fetchMemories(user.id);
-                          }}
+                          disabled={invalidUserIds.includes(user.id) || downloadingUserId === user.id}
+                          beforeEvent={() => downloadMemories(user.id)}
                           trigger={
                             <Button
                               variant="outline"
                               size="sm"
                               disabled={
                                 (!user.profile_count && !user.event_count) ||
-                                (memoriesLoading && memoriesUserId === user.id)
+                                invalidUserIds.includes(user.id) || downloadingUserId === user.id
                               }
                             >
-                              {memoriesLoading && memoriesUserId === user.id
+                              {downloadingUserId === user.id
                                 ? t("table.downloading")
                                 : t("table.download")}
                             </Button>

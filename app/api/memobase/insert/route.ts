@@ -4,11 +4,14 @@ import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
 
 import { BlobType, Blob } from "@memobase/memobase";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 export async function POST(req: Request) {
   const originError = rejectCrossOriginMutation(req);
   if (originError) return originError;
-  const { messages } = await req.json();
+  const body = await readJsonObject(req);
+  if (body.error) return body.error;
+  const { messages } = body.data;
   if (!messages) {
     return createApiError("参数错误", 400);
   }

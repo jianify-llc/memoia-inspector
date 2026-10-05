@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 const factory = vi.hoisted(() => ({ v1: vi.fn(), v2: vi.fn(), user: vi.fn() }));
 vi.mock("@/utils/memobase/client", () => ({ memoBaseClient: factory.v1, getMemobaseUser: factory.user, clearMemobaseUser: vi.fn() }));
@@ -27,8 +28,10 @@ describe("Cookie-backed mutation boundary", () => {
     expect(rejectCrossOriginMutation(request({ origin: "null", referer: "https://inspector.example/users" }))?.status).toBe(403);
   });
 
-  it("rejects simple content types even with a valid origin", () => {
-    expect(rejectCrossOriginMutation(request({ origin: "https://inspector.example", "content-type": "text/plain" }, "{}"))?.status).toBe(415);
+  it("checks JSON media type only when the route declares a JSON body", async () => {
+    const input = request({ origin: "https://inspector.example", "content-type": "text/plain" }, "{}");
+    expect(rejectCrossOriginMutation(input)).toBeNull();
+    expect((await readJsonObject(input)).error?.status).toBe(415);
   });
 
   it("requires browser same-origin metadata for an unconfigured reverse proxy", () => {
