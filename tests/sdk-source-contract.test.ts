@@ -7,6 +7,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const source = {
   source_id: "dialog-1", legacy: false, message_ids: ["1"], deleted_message_ids: [],
   created_at: "2026-01-01T00:00:00Z", blobs: [],
+  next_message_offset: null, next_blob_offset: null, next_evidence_offset: null,
   evidence: [{ fact_id: id, blob_id: id, content: "Likes chess", topic: "interest", sub_topic: "hobby",
     support_groups: [["1"]], event_time: null,
     source_messages: [{ message_id: "1", recorded_at: "2026-01-01T00:00:00Z", time_zone: null }] }],

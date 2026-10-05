@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { canResumeOperation } from "@/lib/operation-recovery";
+import { appendSourcePage, type SourceCollection } from "@/lib/source-page";
 
 /** Provenance is read on demand, without a second cache or stored profile snapshot. */
 export function UserProvenance({ userId }: { userId: string }) {
@@ -116,6 +117,22 @@ export function UserProvenance({ userId }: { userId: string }) {
     finally { setBusy(false); }
   };
 
+  const more = async (collection: SourceCollection) => {
+    if (!selected || busy || pendingKey) return;
+    const offset = collection === "messages" ? selected.next_message_offset :
+      collection === "blobs" ? selected.next_blob_offset : selected.next_evidence_offset;
+    if (offset === null) return;
+    const field = collection === "messages" ? "message_offset" :
+      collection === "blobs" ? "blob_offset" : "evidence_offset";
+    setBusy(true);
+    try {
+      const response = await getSource(userId, selected.source_id, { [field]: offset });
+      if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
+      setSelected(appendSourcePage(selected, response.data, collection));
+    } catch { toast.error(t("failed")); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="h-full space-y-4 overflow-y-auto p-4">
       <div className="flex items-center justify-between gap-2">
@@ -161,6 +178,7 @@ export function UserProvenance({ userId }: { userId: string }) {
                     <p>{blob.message_ids.join(", ")}</p>
                   </div>
                 ))}
+                {selected.next_blob_offset !== null ? <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void more("blobs")}>{t("moreBlobs")}</Button> : null}
                 {selected.evidence.map((fact) => (
                   <div key={fact.fact_id} className="space-y-1 border-b pb-2">
                     <p>{fact.content}</p>
@@ -168,6 +186,7 @@ export function UserProvenance({ userId }: { userId: string }) {
                     <p className="break-all text-xs">{t("support")}: {fact.support_groups.map((group) => group.join(" + ")).join(" | ")}</p>
                   </div>
                 ))}
+                {selected.next_evidence_offset !== null ? <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void more("evidence")}>{t("moreEvidence")}</Button> : null}
                 <p className="text-sm">{t("messages")}</p>
                 {selected.message_ids.filter((id) => !selected.deleted_message_ids.includes(id)).map((id) => (
                   <label key={id} className="flex items-center gap-2 break-all text-sm">
@@ -176,6 +195,7 @@ export function UserProvenance({ userId }: { userId: string }) {
                     {id}
                   </label>
                 ))}
+                {selected.next_message_offset !== null ? <Button variant="outline" size="sm" disabled={busy || !!pendingKey} onClick={() => void more("messages")}>{t("moreMessages")}</Button> : null}
                 <Button variant="destructive" disabled={!selectedMessages.length || busy || !!pendingKey} onClick={() => setConfirm(true)}>{t("deleteMessages")}</Button>
               </CardContent>
             </Card>
