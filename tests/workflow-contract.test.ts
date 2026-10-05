@@ -1,11 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 
-type Job = { if?: string; environment?: { name?: string } | string; needs?: string[] | string; uses?: string; 'runs-on'?: string; 'timeout-minutes'?: number; steps?: { run?: string }[] };
+type Job = { if?: string; environment?: { name?: string } | string; needs?: string[] | string; uses?: string; 'runs-on'?: string; 'timeout-minutes'?: number; strategy?: { matrix: { include: { arch: string; runner: string }[] } }; steps?: { id?: string; run?: string; uses?: string; with?: Record<string, unknown> }[] };
 type Workflow = {
   on: {
     push?: { branches?: string[]; tags?: string[] };
@@ -57,7 +57,7 @@ describe('Test and Online release boundaries', () => {
     }
   });
 
-  it('runs the same code checks for main, Test and Online without building Docker', () => {
+  it('shares code checks but leaves release builds to Docker and keeps PR/full builds', () => {
     expect(verifyWorkflow.on.push).toBeUndefined();
     expect(verifyWorkflow.on.pull_request).toEqual({ branches: ['main'] });
     expect(verifyWorkflow.on).toHaveProperty('workflow_call');
@@ -68,9 +68,12 @@ describe('Test and Online release boundaries', () => {
     const source = readFileSync(resolve(__dirname, '../.github/workflows/verify.yml'), 'utf8');
     expect(source).toContain('python3 scripts/verify_local.py');
     const local = readFileSync(resolve(__dirname, '../scripts/verify_local.py'), 'utf8');
-    for (const check of ['check:sdk', 'typecheck', 'lint', 'build', 'audit', 'tests/deploy-inspector.test.sh']) {
+    for (const check of ['check:sdk', 'typecheck', 'lint', 'docker', 'audit', 'tests/deploy-inspector.test.sh']) {
       expect(local).toContain(check);
     }
+    expect(local).not.toContain('"lint", "build"');
+    expect(local).toContain('mode in ("full", "pr")');
+    expect(local).not.toContain('15.5.26');
     expect(source).not.toContain('docker/build-push-action');
     expect(source).not.toContain('secrets.');
   });
@@ -88,16 +91,98 @@ describe('Test and Online release boundaries', () => {
   it('builds only a release-HEAD tag and deploys its validated digest after approval', () => {
     expect(onlineWorkflow.on).toEqual({ push: { tags: ['v*'] } });
     expect(onlineWorkflow.jobs.verify.needs).toBe('validate-tag');
-    expect(onlineWorkflow.jobs['build-online'].needs).toBe('verify');
+    expect(onlineWorkflow.jobs['build-platforms'].needs).toBe('verify');
+    expect(onlineWorkflow.jobs['build-online'].needs).toBe('build-platforms');
     expect(onlineWorkflow.jobs['deploy-online'].needs).toBe('build-online');
     expect(onlineWorkflow.jobs['deploy-online'].environment).toMatchObject({ name: 'online' });
     const source = readFileSync(resolve(__dirname, '../.github/workflows/deploy-online.yml'), 'utf8');
     expect(source).toContain('git ls-remote origin refs/heads/release');
-    expect(source).toContain('ghcr.io/${{ github.repository }}:${{ github.ref_name }}');
+    expect(source).toContain('version="$IMAGE:$GITHUB_REF_NAME"');
+    expect(source).toContain('docker buildx imagetools create --tag "$version"');
     expect(source).toContain("DIGEST: ${{ needs.build-online.outputs.digest }}");
     expect(source).toContain('INSPECTOR_STAGE=online bash');
     for (const [name, job] of Object.entries(onlineWorkflow.jobs)) {
       if (name !== 'deploy-online') expect(job.environment).toBeUndefined();
+    }
+  });
+
+  it('builds Test only on AMD64 and Online independently on native runners', () => {
+    const build = testWorkflow.jobs['publish-test'].steps!.find(step => step.uses?.includes('docker/build-push-action'))!;
+    expect(build.with?.platforms).toBe('linux/amd64');
+    expect(onlineWorkflow.jobs['build-platforms'].strategy?.matrix.include).toEqual([
+      { arch: 'amd64', runner: 'ubuntu-24.04' }, { arch: 'arm64', runner: 'ubuntu-24.04-arm' },
+    ]);
+    const native = onlineWorkflow.jobs['build-platforms'].steps!.find(step => step.uses?.includes('docker/build-push-action'))!;
+    expect(native.with?.outputs).toContain('push-by-digest=true');
+    for (const name of ['deploy-test.yml', 'deploy-online.yml', 'verify.yml']) {
+      const source = readFileSync(resolve(__dirname, '../.github/workflows', name), 'utf8');
+      expect(source).not.toContain('setup-qemu');
+      expect(source).not.toContain('15.5.26');
+      for (const job of Object.values(workflow(name).jobs)) {
+        for (const step of job.steps ?? []) {
+          if (step.uses && !step.uses.startsWith('./')) expect(step.uses).toMatch(/@[0-9a-f]{40}$/);
+          if (step.uses?.includes('actions/checkout')) expect(step.with?.['persist-credentials']).toBe(false);
+        }
+      }
+    }
+    const upload = onlineWorkflow.jobs['build-platforms'].steps!.find(step => step.uses?.includes('actions/upload-artifact'))!;
+    expect(upload.with?.overwrite).toBe(true);
+    const source = readFileSync(resolve(__dirname, '../.github/workflows/deploy-online.yml'), 'utf8');
+    expect(source).not.toContain('.schema');
+    expect(source).not.toContain('schema=');
+    expect(source).not.toContain('|| true');
+  });
+
+  it('executes manifest assembly and rejects unknown registry state or identity mismatch', () => {
+    const script = onlineWorkflow.jobs['build-online'].steps!.find(step => step.id === 'identity')!.run!;
+    for (const scenario of ['new', 'existing', 'attested', 'registry_error', 'wrong_sha', 'wrong_manifest', 'missing_arch']) {
+      const directory = mkdtempSync(resolve(tmpdir(), 'inspector-manifest-'));
+      try {
+        const platforms = resolve(directory, 'platforms');
+        // 每个夹具只写本次临时目录，所有 Docker 操作由精确命令 mock。
+        mkdirSync(platforms);
+        for (const [arch, digit] of [['amd64', 'a'], ['arm64', 'b']]) {
+          writeFileSync(resolve(platforms, arch + '.json'), JSON.stringify({
+            arch, digest: 'sha256:' + digit.repeat(64), source_commit: scenario === 'wrong_sha' && arch === 'arm64' ? 'f'.repeat(40) : 'd'.repeat(40),
+          }));
+        }
+        const docker = resolve(directory, 'docker');
+        writeFileSync(docker, '#!' + process.execPath + '\n' + `
+const fs = require('node:fs'), path = require('node:path');
+const root = process.env.RUNNER_TEMP, scenario = process.env.SCENARIO, args = process.argv.slice(2);
+const image = 'ghcr.io/fixture/inspector', version = image + ':v1.2.3', created = path.join(root, 'created');
+function manifests(digits) {
+  return { manifests: digits.map(([arch, digit]) => ({ platform: { os: 'linux', architecture: arch }, digest: 'sha256:' + digit.repeat(64) })) };
+}
+if (args[2] === 'create') {
+  const expected = ['buildx','imagetools','create','--tag',version,image+'@sha256:'+'a'.repeat(64),image+'@sha256:'+'b'.repeat(64)];
+  if (JSON.stringify(args) !== JSON.stringify(expected)) process.exit(1);
+  fs.writeFileSync(created, '');
+} else if (args.includes('--format')) console.log(JSON.stringify({digest:'sha256:'+'c'.repeat(64)}));
+else if (args.includes('--raw')) {
+  if (args[3] === image+'@sha256:'+'c'.repeat(64)) {
+    const digits = [['amd64',scenario === 'attested' ? 'd' : 'a'],['arm64','b']];
+    if (scenario === 'wrong_manifest') digits[0][1] = 'f';
+    if (scenario === 'missing_arch') digits.pop();
+    console.log(JSON.stringify(manifests(digits)));
+  } else if (scenario === 'attested' && args[3] === image+'@sha256:'+'a'.repeat(64)) console.log(JSON.stringify(manifests([['amd64','d']])));
+  else process.exit(1);
+} else if (args[2] === 'inspect' && args[3] === version) {
+  if (scenario === 'registry_error') { console.error('ERROR: registry connection timed out'); process.exit(1); }
+  if (scenario !== 'existing' && !fs.existsSync(created)) { console.error('ERROR: '+version+': not found'); process.exit(1); }
+} else process.exit(1);
+`);
+        chmodSync(docker, 0o755);
+        const result = spawnSync('bash', ['-c', script], {
+          env: { NODE_ENV: 'test', PATH: directory + ':' + process.env.PATH, RUNNER_TEMP: directory, IMAGE: 'ghcr.io/fixture/inspector', GITHUB_REF_NAME: 'v1.2.3',
+            GITHUB_SHA: 'd'.repeat(40), GITHUB_OUTPUT: resolve(directory, 'output'), GITHUB_STEP_SUMMARY: resolve(directory, 'summary'), SCENARIO: scenario },
+          encoding: 'utf8', timeout: 10000,
+        });
+        expect(result.status === 0, result.stderr).toBe(['new', 'existing', 'attested'].includes(scenario));
+        if (result.status === 0) expect(readFileSync(resolve(directory, 'output'), 'utf8')).toContain('digest=sha256:' + 'c'.repeat(64));
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     }
   });
 });

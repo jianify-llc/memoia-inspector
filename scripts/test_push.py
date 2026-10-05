@@ -123,7 +123,7 @@ def push():
     if base != ZERO:
         git("fetch", "--no-tags", "origin", "test")
         git("merge-base", "--is-ancestor", base, sha)
-    run([sys.executable, "scripts/verify_local.py"], env=local_env(),
+    run([sys.executable, "scripts/verify_local.py", "--mode", "quick", "--base", base], env=local_env(),
         timeout=CI_TIMEOUT + 30, grace=60)
     if clean_head() != sha:
         raise ValueError("TEST_PUSH_SOURCE_CHANGED")

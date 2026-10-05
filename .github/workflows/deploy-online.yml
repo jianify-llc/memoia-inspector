@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Require version tag at current Release HEAD
         run: |
           set -euo pipefail
@@ -28,13 +30,118 @@ jobs:
   verify:
     needs: validate-tag
     uses: ./.github/workflows/verify.yml
+    with:
+      mode: publish
 
-  build-online:
+  build-platforms:
     needs: verify
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
     concurrency:
-      group: inspector-online-image-${{ github.ref_name }}
+      group: memoia-inspector-online-image-${{ github.ref_name }}-${{ matrix.arch }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reuse an immutable published version if it exists
+        id: existing
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version="$IMAGE:$GITHUB_REF_NAME"
+          if docker buildx imagetools inspect "$version" --raw > "$RUNNER_TEMP/version.json" 2> "$RUNNER_TEMP/registry-error"; then
+            digest=$(jq -er --arg arch "$ARCH" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate platform") end' "$RUNNER_TEMP/version.json")
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            grep -Fx "ERROR: $version: not found" "$RUNNER_TEMP/registry-error" >/dev/null || { cat "$RUNNER_TEMP/registry-error" >&2; exit 1; }
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build this architecture once on its native runner
+        id: build
+        if: ${{ steps.existing.outputs.exists != 'true' }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=online-${{ matrix.arch }}
+          cache-to: type=gha,scope=online-${{ matrix.arch }},mode=max
+          provenance: mode=max
+      - name: Validate the native artifact and anonymous pull
+        env:
+          ARCH: ${{ matrix.arch }}
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest="${EXISTING_DIGEST:-$BUILT_DIGEST}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          platform_image="$IMAGE@$digest"
+          anonymous_config=$(mktemp -d)
+          trap 'rm -rf -- "$anonymous_config"' EXIT
+          DOCKER_CONFIG="$anonymous_config" docker pull --platform "linux/$ARCH" "$platform_image"
+          docker image inspect "$platform_image" --format '{{.Os}}/{{.Architecture}}' | grep -Fx "linux/$ARCH"
+          docker image inspect "$platform_image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx "$GITHUB_SHA"
+
+          container="inspector-validation-$GITHUB_RUN_ID-$ARCH"
+          cleanup() {
+            status=$?
+            if remaining=$(docker container ls -aq --filter "name=^/$container$"); then
+              if [[ -n "$remaining" ]]; then
+                docker rm -f "$container" >/dev/null || status=1
+              fi
+            else
+              status=1
+            fi
+            rm -rf -- "$anonymous_config"
+            exit "$status"
+          }
+          trap cleanup EXIT
+          docker run -d --name "$container" --network none "$platform_image"
+          ready=false
+          for attempt in {1..30}; do
+            if docker exec "$container" node -e "fetch('http://127.0.0.1:3000/settings').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              ready=true; break
+            fi
+            sleep 2
+          done
+          [[ "$ready" == true ]] || { echo 'Inspector native image health failed' >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/platforms"
+          jq -n --arg arch "$ARCH" --arg digest "$digest" --arg sha "$GITHUB_SHA" '{arch:$arch,digest:$digest,source_commit:$sha}' > "$RUNNER_TEMP/platforms/$ARCH.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: memoia-inspector-online-${{ matrix.arch }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/platforms/*.json
+          overwrite: true
+
+  build-online:
+    needs: build-platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: memoia-inspector-online-manifest-${{ github.ref_name }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -42,58 +149,50 @@ jobs:
     outputs:
       digest: ${{ steps.identity.outputs.digest }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Require the reviewed Next.js version
-        run: |
-          node - <<'NODE'
-          const version = require('./package.json').dependencies.next;
-          if (version !== '15.5.26') throw new Error(`Unreviewed Next.js version: ${version}`);
-          NODE
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Check whether this immutable version already exists
-        id: existing
-        run: |
-          set -euo pipefail
-          if docker buildx imagetools inspect "$IMAGE:$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build the Online image once on AMD64 and ARM64
-        if: ${{ steps.existing.outputs.exists != 'true' }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-          build-args: SOURCE_REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
-      - name: Validate published digest, platforms and source
+          pattern: memoia-inspector-online-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/platforms
+          merge-multiple: true
+      - name: Assemble or verify the same validated artifacts
         id: identity
         run: |
           set -euo pipefail
           version="$IMAGE:$GITHUB_REF_NAME"
-          docker buildx imagetools inspect "$version" --raw > "$RUNNER_TEMP/manifest.json"
-          digest=$(docker buildx imagetools inspect "$version" --format '{{json .Manifest}}' | jq -r .digest)
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          anonymous_config=$(mktemp -d)
-          trap 'rm -rf -- "$anonymous_config"' EXIT
+          directory="$RUNNER_TEMP/platforms"
+          [[ "$(find "$directory" -type f | wc -l)" -eq 2 ]]
+          inputs=()
           for arch in amd64 arm64; do
-            platform_digest=$(jq -er --arg arch "$arch" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate platform") end' "$RUNNER_TEMP/manifest.json")
-            DOCKER_CONFIG="$anonymous_config" docker pull --platform "linux/$arch" "$IMAGE@$platform_digest"
-            docker image inspect "$IMAGE@$platform_digest" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' | grep -Fx "$GITHUB_SHA"
+            file="$directory/$arch.json"
+            jq -e --arg arch "$arch" --arg sha "$GITHUB_SHA" '.arch == $arch and .source_commit == $sha and (.digest | test("^sha256:[0-9a-f]{64}$"))' "$file" >/dev/null
+            inputs+=("$IMAGE@$(jq -r .digest "$file")")
+          done
+          if ! docker buildx imagetools inspect "$version" >/dev/null 2> "$RUNNER_TEMP/registry-error"; then
+            grep -Fx "ERROR: $version: not found" "$RUNNER_TEMP/registry-error" >/dev/null || { cat "$RUNNER_TEMP/registry-error" >&2; exit 1; }
+            docker buildx imagetools create --tag "$version" "${inputs[@]}"
+          fi
+          digest=$(docker buildx imagetools inspect "$version" --format '{{json .Manifest}}' | jq -er .digest)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker buildx imagetools inspect "$IMAGE@$digest" --raw > "$RUNNER_TEMP/manifest.json"
+          for arch in amd64 arm64; do
+            actual=$(jq -er --arg arch "$arch" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate platform") end' "$RUNNER_TEMP/manifest.json")
+            expected=$(jq -r .digest "$directory/$arch.json")
+            # 原生构建的输出也可能是包含 provenance 的平台索引。
+            platform="$IMAGE@$expected"
+            if [[ "$actual" != "$expected" ]]; then
+              docker buildx imagetools inspect "$platform" --raw > "$RUNNER_TEMP/platform.json"
+              expected=$(jq -er --arg arch "$arch" '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else error("Missing or duplicate built platform") end' "$RUNNER_TEMP/platform.json")
+            fi
+            [[ "$actual" == "$expected" ]] || { echo 'Published manifest differs from validated artifact' >&2; exit 1; }
           done
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          printf 'Online artifact: source=%s image=%s@%s\n' "$GITHUB_SHA" "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Online artifact: source=%s image=%s@%s platforms=linux/amd64,linux/arm64\n' "$GITHUB_SHA" "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
 
   deploy-online:
     needs: build-online
@@ -116,6 +215,8 @@ jobs:
       DIGEST: ${{ needs.build-online.outputs.digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Verify approval boundary and candidate before SSH
         run: |
           set -euo pipefail
