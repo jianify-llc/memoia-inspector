@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const sdk = vi.hoisted(() => ({ memoBaseClient: vi.fn() }));
+const sdk = vi.hoisted(() => ({ memoiaClient: vi.fn() }));
 
-vi.mock("@/utils/memobase/client", () => ({
-  memoBaseClient: sdk.memoBaseClient,
-  getMemobaseUser: vi.fn(),
+vi.mock("@/utils/memoia/client", () => ({
+  memoiaClient: sdk.memoiaClient,
+  getMemoiaUser: vi.fn(),
 }));
 
 import { GET, POST } from "@/app/api/chat/route";
@@ -31,7 +31,7 @@ describe("optional Playground model", () => {
     expect(await statusResponse.json()).toEqual({ enabled: false });
     expect(response.status).toBe(503);
     expect(await response.text()).toContain("not configured");
-    expect(sdk.memoBaseClient).not.toHaveBeenCalled();
+    expect(sdk.memoiaClient).not.toHaveBeenCalled();
   });
 
   it("reports enabled only when the optional model config is complete", async () => {
@@ -42,6 +42,6 @@ describe("optional Playground model", () => {
     const response = await GET();
 
     expect(await response.json()).toEqual({ enabled: true });
-    expect(sdk.memoBaseClient).not.toHaveBeenCalled();
+    expect(sdk.memoiaClient).not.toHaveBeenCalled();
   });
 });

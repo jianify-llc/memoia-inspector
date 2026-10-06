@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
-import { clearLocale } from "@/utils/memobase/client";
+import { clearLocale } from "@/utils/memoia/client";
 
 export function ProjectSwitch() {
   const router = useRouter();

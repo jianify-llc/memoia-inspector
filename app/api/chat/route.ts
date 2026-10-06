@@ -1,7 +1,7 @@
 import { openai } from "@/lib/openai";
 import { jsonSchema, streamText } from "ai";
 
-import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { memoiaClient, getMemoiaUser } from "@/utils/memoia/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 
@@ -31,9 +31,13 @@ export async function POST(req: Request) {
   const { messages, tools } = body.data;
 
   try {
-    const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
-
-    const context = await user.context(750);
+    const client = await memoiaClient();
+    if (!client) return new Response("Unauthorized", { status: 401 });
+    const uid = await getMemoiaUser();
+    const latest = messages.at(-1)?.content;
+    const query = typeof latest === "string" ? latest : latest?.filter((part: { type: string }) => part.type === "text").map((part: { text: string }) => part.text).join("\n");
+    const [profileResult, eventResult] = await Promise.all([client.getProfiles(uid), client.getContext(uid, { query: query || null, max_token_size: 750 })]);
+    const context = [profileResult.profiles.map(p => `${p.topic}::${p.sub_topic}: ${p.content}`).join("\n"), eventResult.context].filter(Boolean).join("\n\n");
 
     const finalSystemPrompt = `You're Memobase Assistant, a helpful assistant that demonstrates the capabilities of Memobase Memory. \n${context}`;
     const result = streamText({
@@ -59,16 +63,15 @@ export async function POST(req: Request) {
     return result.toDataStreamResponse({
       headers: {
         "x-last-user-message": encodeURIComponent(lastMessage),
+        "x-last-user-recorded-at": messages.at(-1)?.createdAt || new Date().toISOString(),
       },
       getErrorMessage(error) {
-        if (error instanceof Error) {
-          return error.message;
-        }
+        void error;
         return "Internal Server Error";
       },
     });
   } catch (error) {
-    console.error(error);
+    void error;
     return new Response("Internal Server Error", { status: 500 });
   }
 }

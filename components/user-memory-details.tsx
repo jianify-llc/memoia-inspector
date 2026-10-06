@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import type { UserEvent, UserProfile } from "@memobase/memobase";
+import type { UserEvent, UserProfile } from "@/api/models/memobase";
 import { getProjectUserMemories } from "@/api/models/memobase";
 import { SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";

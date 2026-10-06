@@ -32,7 +32,9 @@ const request = async <T = any>(
     body: data.body,
     // API failures carry the existing { code, message } contract for the UI.
     ignoreResponseError: true,
-    timeout: 1000 * 60 * 5,
+    timeout: 10_000,
+    // 写请求的未知结果由调用方读取核对，不能由 ofetch 自动重发。
+    retry: 0,
   });
 };
 

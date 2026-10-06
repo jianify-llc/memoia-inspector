@@ -46,7 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { JsonDownload } from "@/components/json-download";
 
-import { ProjectUser } from "@memobase/memobase";
+import { ProjectUser } from "@/api/models/memobase";
 import { ProjectUsersOrderBy } from "@/types";
 import { deleteUserByUid, getProjectUserMemories } from "@/api/models/memobase";
 import { getProjectUsers } from "@/api/models/memobase";

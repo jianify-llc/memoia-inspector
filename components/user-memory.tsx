@@ -1,5 +1,7 @@
 "use client";
 
+import { z } from "zod";
+
 import { useState, useEffect } from "react";
 
 import { useForm } from "react-hook-form";
@@ -16,7 +18,7 @@ import {
   Download,
 } from "lucide-react";
 
-import { UserProfile, UserEvent } from "@memobase/memobase";
+import { UserProfile, UserEvent, ProfileEditor } from "@/api/models/memobase";
 
 import { getTopicIcon } from "@/components/icons/topic-icons";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,8 +97,28 @@ export function UserMemory({
   const t = useTranslations("memories");
   const [foldStatus, setFoldStatus] = useState<Record<string, boolean>>({});
 
-  const form = useForm<UserProfile>({
-    resolver: zodResolver(UserProfile),
+  // HTTP 错误正文也会 resolve；只有 code=0 才是已确认成功，未知写入先读取核对。
+  const handleMutationResponse = async (response: { code: number; message?: string }) => {
+    if (response.code !== 0) {
+      toast.error(
+        response.message === "OUTCOME_UNKNOWN"
+          ? t("writeUnknown")
+          : response.message || t("writeFailed")
+      );
+      if (response.message !== "OUTCOME_UNKNOWN") return;
+    }
+    try {
+      await onRefresh?.();
+    } catch {
+      toast.error(t("refreshFailed"));
+    }
+  };
+  const handleMutationFailure = () => {
+    toast.error(t("writeUnknown"));
+  };
+
+  const form = useForm<z.infer<typeof ProfileEditor>>({
+    resolver: zodResolver(ProfileEditor),
   });
 
   const groupedProfiles = profiles.reduce((acc, profile) => {
@@ -266,9 +288,8 @@ export function UserMemory({
                           }
                           setIsLoading(true);
                           await addProfile(content, topic, sub_topic)
-                            .then(async () => {
-                              await onRefresh?.();
-                            })
+                            .then(handleMutationResponse)
+                            .catch(handleMutationFailure)
                             .finally(() => {
                               setIsLoading(false);
                             });
@@ -418,9 +439,8 @@ export function UserMemory({
                                                     topic,
                                                     sub_topic
                                                   )
-                                                    .then(async () => {
-                                                      await onRefresh?.();
-                                                    })
+                                                    .then(handleMutationResponse)
+                                                    .catch(handleMutationFailure)
                                                     .finally(() => {
                                                       setIsLoading(false);
                                                     });
@@ -464,9 +484,8 @@ export function UserMemory({
                                                   await deleteProfile(
                                                     profile.id
                                                   )
-                                                    .then(async () => {
-                                                      await onRefresh?.();
-                                                    })
+                                                    .then(handleMutationResponse)
+                                                    .catch(handleMutationFailure)
                                                     .finally(() => {
                                                       setIsLoading(false);
                                                     });
@@ -547,9 +566,8 @@ export function UserMemory({
                                   onClick={async () => {
                                     setIsLoading(true);
                                     await deleteEvent(event.id)
-                                      .then(async () => {
-                                        await onRefresh?.();
-                                      })
+                                      .then(handleMutationResponse)
+                                      .catch(handleMutationFailure)
                                       .finally(() => {
                                         setIsLoading(false);
                                       });
@@ -573,7 +591,7 @@ export function UserMemory({
                                     if (index === 5) return "···";
                                     if (index > 4) return null;
                                     const subTopic =
-                                      delta.attributes?.sub_topic || "default";
+                                      typeof delta.attributes?.sub_topic === "string" ? delta.attributes.sub_topic : "default";
                                     const Icon = getTopicIcon(subTopic);
                                     return (
                                       <Avatar key={index}>
@@ -595,10 +613,9 @@ export function UserMemory({
                                   items={event.event_data?.profile_delta.map(
                                     (delta) => {
                                       const topic =
-                                        delta.attributes?.topic || "default";
+                                        typeof delta.attributes?.topic === "string" ? delta.attributes.topic : "default";
                                       const subTopic =
-                                        delta.attributes?.sub_topic ||
-                                        "default";
+                                        typeof delta.attributes?.sub_topic === "string" ? delta.attributes.sub_topic : "default";
                                       const Icon = getTopicIcon(subTopic);
 
                                       return {

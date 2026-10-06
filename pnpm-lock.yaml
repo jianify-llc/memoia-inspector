@@ -7,6 +7,7 @@ settings:
 overrides:
   react-is: ^19.0.0-rc-69d4b800-20241021
   postcss: 8.5.23
+  source-map-js: 1.2.2
   mdast-util-to-hast: 13.2.1
   lodash: 4.18.1
   ai>jsondiffpatch: 0.7.6
@@ -37,11 +38,8 @@ importers:
         specifier: ^5.1.1
         version: 5.1.1(react-hook-form@7.58.1(react@19.1.9))
       '@jianify/memoia':
-        specifier: file:vendor/jianify-memoia-0.5.0.tgz
-        version: file:vendor/jianify-memoia-0.5.0.tgz
-      '@memobase/memobase':
-        specifier: ^0.0.16
-        version: 0.0.16
+        specifier: file:vendor/jianify-memoia-0.7.0.tgz
+        version: file:vendor/jianify-memoia-0.7.0.tgz
       '@next/third-parties':
         specifier: 15.5.26
         version: 15.5.26(next@15.5.26(@opentelemetry/api@1.9.0)(@types/node@24.0.3)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(react@19.1.9)
@@ -1468,9 +1466,9 @@ packages:
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.5.0.tgz':
-    resolution: {integrity: sha512-vC2XJkiRbif3oTX684nkMjSnD/dzGly09ntBkpA3UYsBWEUIea+ZlsTabn7A+t3pufgEEqsBIUrrn8xLdAxw5A==, tarball: file:vendor/jianify-memoia-0.5.0.tgz}
-    version: 0.5.0
+  '@jianify/memoia@file:vendor/jianify-memoia-0.7.0.tgz':
+    resolution: {integrity: sha512-l3stDhcNtUxanpN1zQ5SFgpDILtYNofeaQLx+jDUeuTa9ZFwMhvfD4UhbWFYFbGN8/j+jeXT3zoXCI3xnv3TDg==, tarball: file:vendor/jianify-memoia-0.7.0.tgz}
+    version: 0.7.0
     engines: {node: '>=22'}
 
   '@jridgewell/gen-mapping@0.3.8':
@@ -1514,9 +1512,6 @@ packages:
 
   '@marijn/find-cluster-break@1.0.2':
     resolution: {integrity: sha512-l0h88YhZFyKdXIFNfSWpyjStDjGHwZ/U7iobcK1cQQD8sejsONdQtTVU+1wVN1PBw40PiiHB1vA5S7VTfQiP9g==}
-
-  '@memobase/memobase@0.0.16':
-    resolution: {integrity: sha512-K2RzKO1ilreHOC9E4GzQRebL8Qj5HgCsgGjwwH86ElXKSBU3UDHXZ0kSzA+WGSrPM6GsrJEq3yREfe0tZaZbZA==}
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
@@ -5282,8 +5277,8 @@ packages:
       react: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
       react-dom: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+  source-map-js@1.2.2:
+    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
 
   source-map-support@0.5.21:
@@ -7641,7 +7636,7 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.5.0.tgz': {}
+  '@jianify/memoia@file:vendor/jianify-memoia-0.7.0.tgz': {}
 
   '@jridgewell/gen-mapping@0.3.8':
     dependencies:
@@ -7689,10 +7684,6 @@ snapshots:
       '@lezer/lr': 1.4.2
 
   '@marijn/find-cluster-break@1.0.2': {}
-
-  '@memobase/memobase@0.0.16':
-    dependencies:
-      zod: 3.25.67
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
@@ -11586,7 +11577,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.19
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   prelude-ls@1.2.1: {}
 
@@ -12058,7 +12049,7 @@ snapshots:
       react: 19.1.9
       react-dom: 19.1.9(react@19.1.9)
 
-  source-map-js@1.2.1: {}
+  source-map-js@1.2.2: {}
 
   source-map-support@0.5.21:
     dependencies:

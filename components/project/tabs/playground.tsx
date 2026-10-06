@@ -11,14 +11,14 @@ import { AssistantSidebar } from "@/components/assistant-ui/assistant-sidebar";
 import { Thread } from "@/components/assistant-ui/thread";
 import { UserMemory } from "@/components/user-memory";
 
-import { UserProfile, UserEvent } from "@memobase/memobase";
+import { UserProfile, UserEvent } from "@/api/models/memobase";
 
 import {
-  flash,
   getProfile,
   getEvent,
   insertMessages,
   deleteUser,
+  initializePlaygroundUser,
 } from "@/api/models/memobase";
 
 import { toast } from "sonner";
@@ -28,7 +28,13 @@ import { Project } from "@/types";
 export default function Playground({ project }: { project: Project }) {
   const t = useTranslations("project.playground");
   const [isLoading, setIsLoading] = useState(false);
+  // 相同挂载的重复初始化共用身份；项目切换或显式新用户才分配新 ID。
+  const initializationIdentity = useRef({ projectId: project.endpoint_url, id: crypto.randomUUID() });
+  if (initializationIdentity.current.projectId !== project.endpoint_url) {
+    initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
+  }
   const lastUserMessageRef = useRef<string>("");
+  const lastUserRecordedAt = useRef<string>("");
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
   const [playgroundAvailable, setPlaygroundAvailable] = useState<boolean | null>(null);
@@ -43,6 +49,7 @@ export default function Playground({ project }: { project: Project }) {
 
       const message = response.headers.get("x-last-user-message") || "";
       lastUserMessageRef.current = decodeURIComponent(message);
+      lastUserRecordedAt.current = response.headers.get("x-last-user-recorded-at") || "";
     },
     onFinish: async (message) => {
       if (!message.content || message.content.length === 0) {
@@ -56,24 +63,21 @@ export default function Playground({ project }: { project: Project }) {
             {
               role: "user",
               content: lastUserMessageRef.current,
+              created_at: lastUserRecordedAt.current,
             },
             {
               role: "assistant",
               content: lastContent.text,
+              created_at: message.createdAt.toISOString(),
             },
-          ]);
+          ], message.id);
           if (res.code !== 0) {
             toast.error(res.message || t("insertRecordsFailed"));
             return;
           }
 
-          const flashRes = await flash();
-          if (flashRes.code === 0) {
-            await fetchProfile();
-            await fetchEvent();
-          } else {
-            toast.error(flashRes.message || t("flashRecordsFailed"));
-          }
+          await fetchProfile();
+          await fetchEvent();
         } catch {
           toast.error(t("insertRecordsFailed"));
         }
@@ -137,11 +141,16 @@ export default function Playground({ project }: { project: Project }) {
   useEffect(() => {
     if (!project || !playgroundAvailable) return;
     const init = async () => {
+      const result = await initializePlaygroundUser(initializationIdentity.current.id);
+      if (result.code !== 0) {
+        toast.error(result.message === "OUTCOME_UNKNOWN" ? t("getRecordsFailed") : result.message || t("getRecordsFailed"));
+        return;
+      }
       await fetchProfile();
       await fetchEvent();
     };
-    init();
-  }, [fetchProfile, fetchEvent, playgroundAvailable, project]);
+    init().catch(() => toast.error(t("getRecordsFailed")));
+  }, [fetchProfile, fetchEvent, playgroundAvailable, project, t]);
 
   if (playgroundAvailable !== true) {
     return (
@@ -171,6 +180,12 @@ export default function Playground({ project }: { project: Project }) {
                 const result = await deleteUser();
                 if (result.code !== 0) {
                   toast.error(result.message || t("getRecordsFailed"));
+                  return;
+                }
+                initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
+                const initialized = await initializePlaygroundUser(initializationIdentity.current.id);
+                if (initialized.code !== 0) {
+                  toast.error(initialized.message || t("getRecordsFailed"));
                   return;
                 }
                 await fetchProfile();

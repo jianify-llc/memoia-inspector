@@ -1,6 +1,7 @@
+import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient } from "@/utils/memobase/client";
+import { memoiaClient } from "@/utils/memoia/client";
 
 /**
  * 获取项目用户画像和事件信息
@@ -12,16 +13,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ uid: str
     return createApiError("Project not found", 404);
   }
   try {
-    const user = await (await memoBaseClient()).getUser(uid);
-
-    const [profiles, events] = await Promise.all([user.profile(), user.event()])
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    const [profileResult, eventResult] = await Promise.all([client.getProfiles(uid), client.getEvents(uid)]);
+    const profiles = profileResult.profiles;
+    const events = eventResult.events;
 
     return createApiResponse({
       profiles: profiles,
       events: events,
     });
   } catch (error) {
-    console.error(error);
-    return createApiError("Internal Server Error", 500);
+    return memoiaApiError(error);
   }
 }

@@ -1,6 +1,8 @@
+import { z } from "zod";
+import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient, getMemobaseUser, clearMemobaseUser } from "@/utils/memobase/client";
+import { memoiaClient, getMemoiaUser, clearMemoiaUser, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 /**
@@ -16,12 +18,13 @@ export async function GET(req: Request) {
     const limit = parseInt(searchParams.get("limit") || "10");
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    const usersInfo = await (await memoBaseClient()).getUsers(search, order_by, order_desc, limit, offset)
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    const usersInfo = await client.listUsers({ search, order_by, order_desc, limit, offset });
 
     return createApiResponse(usersInfo);
   } catch (error) {
-    console.error(error);
-    return createApiError("Internal Server Error", 500);
+    return memoiaApiError(error);
   }
 }
 
@@ -32,15 +35,30 @@ export async function DELETE(req: Request) {
   const originError = rejectCrossOriginMutation(req);
   if (originError) return originError;
   try {
-    const deleted = await (await memoBaseClient()).deleteUser(await getMemobaseUser());
-    if (!deleted) {
-      return createApiError("删除失败：Memoia 未确认删除", 502);
-    }
-    await clearMemobaseUser();
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    await client.forgetUser(await getMemoiaUser());
+    await clearMemoiaUser();
   } catch (error: unknown) {
-    console.error(error);
-    return createApiError("删除失败", 500);
+    return memoiaApiError(error);
   }
 
   return createApiResponse(null, "删除成功");
+}
+
+/** 初始化分两次 HTTP：先持久会话身份，收到回执后才发送 Memoia 创建。 */
+export async function POST(req: Request) {
+  const rejected = rejectCrossOriginMutation(req);
+  if (rejected) return rejected;
+  const body: unknown = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || !("action" in body)) return createApiError("INVALID_INPUT", 400);
+  const id = z.string().uuid().safeParse("id" in body ? body.id : null);
+  if (!id.success) return createApiError("INVALID_INPUT", 400);
+  try {
+    if (body.action === "prepare") return createApiResponse({ id: await prepareMemoiaUser(id.data) });
+    if (body.action === "initialize") return createApiResponse({ id: await initializeMemoiaUser(id.data) });
+    return createApiError("INVALID_INPUT", 400);
+  } catch (error) {
+    return memoiaApiError(error);
+  }
 }

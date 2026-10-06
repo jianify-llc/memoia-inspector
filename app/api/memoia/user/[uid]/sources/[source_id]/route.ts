@@ -5,6 +5,8 @@ import { memoiaClient } from "@/utils/memoia/client";
 export async function GET(request: Request, { params }: { params: Promise<{ uid: string; source_id: string }> }) {
   try {
     const query = new URL(request.url).searchParams;
+    const fields = new Set(["limit", "message_offset", "blob_offset", "evidence_offset"]);
+    if ([...query.keys()].some(key => !fields.has(key))) return createApiError("Invalid source page", 400);
     const page = {
       limit: Number(query.get("limit") ?? 20),
       message_offset: Number(query.get("message_offset") ?? 0),

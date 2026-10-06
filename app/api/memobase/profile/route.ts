@@ -1,6 +1,7 @@
+import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { memoiaClient, getMemoiaUser } from "@/utils/memoia/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 
@@ -9,14 +10,13 @@ import { readJsonObject } from "@/lib/json-body";
  */
 export async function GET() {
   try {
-    const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
-    const profiles = await user.profile();
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    const { profiles } = await client.getProfiles(await getMemoiaUser());
 
     return createApiResponse(profiles, "获取记录成功");
   } catch (error: unknown) {
-    const errorMessage =
-      error instanceof Error ? error.message : "获取记录失败";
-    return createApiError(errorMessage, 500);
+    return memoiaApiError(error);
   }
 }
 
@@ -30,16 +30,16 @@ export async function POST(req: Request) {
   const body = await readJsonObject(req);
   if (body.error) return body.error;
   const { content, topic, sub_topic } = body.data;
-  if (!content || !topic || !sub_topic) {
-    return createApiError("Bad Request", 400);
+  if (typeof content !== "string" || typeof topic !== "string" || typeof sub_topic !== "string") {
+    return createApiError("INVALID_INPUT", 400);
   }
 
   try {
-    const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
-    await user.addProfile(content, topic, sub_topic)
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    await client.addProfile(await getMemoiaUser(), { content, topic, sub_topic });
   } catch (error: unknown) {
-    console.error(error);
-    return createApiError("失败", 500);
+    return memoiaApiError(error);
   }
 
   return createApiResponse(null, "成功");

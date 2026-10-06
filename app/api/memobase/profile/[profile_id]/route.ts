@@ -1,6 +1,7 @@
+import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { memoiaClient, getMemoiaUser } from "@/utils/memoia/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 
@@ -17,11 +18,11 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ profi
   }
 
   try {
-    const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
-    await user.deleteProfile(profile_id);
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    await client.deleteProfile(await getMemoiaUser(), profile_id);
   } catch (error: unknown) {
-    console.error(error);
-    return createApiError("删除失败", 500);
+    return memoiaApiError(error);
   }
 
   return createApiResponse(null, "删除成功");
@@ -44,16 +45,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ profile_
   const body = await readJsonObject(req);
   if (body.error) return body.error;
   const { content, topic, sub_topic } = body.data;
-  if (!content || !topic || !sub_topic) {
-    return createApiError("Bad Request", 400);
+  if (typeof content !== "string" || typeof topic !== "string" || typeof sub_topic !== "string") {
+    return createApiError("INVALID_INPUT", 400);
   }
 
   try {
-    const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
-    await user.updateProfile(profile_id, content, topic, sub_topic)
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    await client.updateProfile(await getMemoiaUser(), profile_id, { content, topic, sub_topic });
   } catch (error: unknown) {
-    console.error(error);
-    return createApiError("失败", 500);
+    return memoiaApiError(error);
   }
 
   return createApiResponse(null, "成功");

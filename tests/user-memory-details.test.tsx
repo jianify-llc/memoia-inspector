@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UserEvent, UserProfile } from "@memobase/memobase";
+import type { UserEvent, UserProfile } from "@/api/models/memobase";
 import messages from "@/messages/en.json";
 
 const api = vi.hoisted(() => ({

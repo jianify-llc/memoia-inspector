@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { GetProjectUsageItemResponse } from "@memobase/memobase";
+import { GetProjectUsageItemResponse } from "@/api/models/memobase";
 import { getProjectUsage } from "@/api/models/memobase";
 
 import { Card, CardHeader, CardContent } from "@/components/ui/card";

@@ -17,7 +17,7 @@ import Config from "@/components/project/tabs/config";
 import Playground from "@/components/project/tabs/playground";
 import ProjectAdmin from "@/components/project/tabs/project-admin";
 
-import { getLocale } from "@/utils/memobase/client";
+import { getLocale } from "@/utils/memoia/client";
 
 import { toast } from "sonner";
 import { getConfig } from "@/api/models/memobase";

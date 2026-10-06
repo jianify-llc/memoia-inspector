@@ -1,5 +1,13 @@
 import service, { Res } from "../http";
-import { UserProfile, UserEvent, GetProjectUsersResponse, GetProjectUsageItemResponse } from "@memobase/memobase";
+import type { Profiles, Events, Users, Usage } from "@jianify/memoia";
+import { z } from "zod";
+export type UserProfile = Profiles["profiles"][number];
+export type UserEvent = Events["events"][number];
+export type GetProjectUsersResponse = Users;
+export type ProjectUser = Users["users"][number];
+export type GetProjectUsageItemResponse = Usage["usages"][number];
+// 这是编辑表单的规则，HTTP 对象由 SDK 的生成校验器负责。
+export const ProfileEditor = z.object({ id: z.string(), content: z.string().min(1), topic: z.string().min(1), sub_topic: z.string().min(1) });
 
 export const getProfile = (): Promise<Res<UserProfile[]>> =>
   service.get("/api/memobase/profile");
@@ -9,15 +17,13 @@ export const insertMessages = (
     role: "user" | "assistant";
     content: string;
     alias?: string | undefined;
-    created_at?: string | undefined;
-  }[]
+    created_at: string;
+  }[], idempotencyKey: string
 ): Promise<Res<null>> =>
   service.post("/api/memobase/insert", {
+    idempotency_key: idempotencyKey,
     messages,
   });
-
-export const flash = (): Promise<Res<null>> =>
-  service.post("/api/memobase/flash");
 
 export const getEvent = (): Promise<Res<UserEvent[]>> =>
   service.get("/api/memobase/event");
@@ -38,6 +44,14 @@ export const updateProfile = (id: string, content: string, topic: string, subTop
     topic,
     sub_topic: subTopic,
   });
+
+/** 顺序回执保证供应商写入之前浏览器已有稳定用户 Cookie。 */
+export const initializePlaygroundUser = async (id: string): Promise<Res<{ id: string }>> => {
+  const prepared = await service.post<Res<{ id: string }>>("/api/memobase/user", { action: "prepare", id });
+  if (prepared.code !== 0) return prepared;
+  if (!prepared.data) return { code: 502, data: null, message: "INVALID_RESPONSE" };
+  return service.post("/api/memobase/user", { action: "initialize", id: prepared.data.id });
+};
 
 export const deleteUser = (): Promise<Res<null>> =>
   service.delete(`/api/memobase/user`);

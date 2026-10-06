@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
 import { toast } from "sonner";
-import { setLocale } from "@/utils/memobase/client";
+import { setLocale } from "@/utils/memoia/client";
 
 export default function ProjectSettingsForm() {
   const router = useRouter();
