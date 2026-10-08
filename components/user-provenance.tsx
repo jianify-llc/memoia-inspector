@@ -161,7 +161,8 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
       {unresolved ? (
         <Card>
           <CardContent className="space-y-2 pt-4">
-            <p role="status">{operation?.status === "processing" ? t("processing") : t("unknown")}</p>
+            <p role="status">{operation?.status === "failed" ? t("failed") : operation?.status === "processing" ? t("processing") : t("unknown")}</p>
+            {operation?.error ? <p>{operation.error.code}</p> : null}
             <code className="block break-all text-xs">{pendingKey || operation?.operation_id}</code>
             <Button size="sm" disabled={busy} onClick={() => void query()}>{t("query")}</Button>
             {operation && canResumeOperation(operation) ? (

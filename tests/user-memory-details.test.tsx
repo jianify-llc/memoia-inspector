@@ -188,6 +188,26 @@ describe("source mutation → all user memory views", () => {
     expect(api.deleteMessages).not.toHaveBeenCalled();
   });
 
+  it("retains the failed original flush code and explicit recovery after polling", async () => {
+    const failed = { ...accepted, kind: "flush", error: { code: "maintenance_invalid_identifier", retryable: false }, status: "failed" };
+    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed], maintenance: { pending_blob_count: 0, flushes: [] } }));
+    api.retry.mockResolvedValue(response({ ...failed, status: "processing", error: null }));
+    api.query.mockResolvedValue(response(failed));
+    await openDetails();
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.recover }));
+    await waitFor(() => expect(api.retry).toHaveBeenCalledWith("user-1", "op-1"));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    await screen.findByText("maintenance_invalid_identifier");
+    expect(screen.getByRole("status").textContent).toBe(messages.provenance.failed);
+    expect(screen.queryByText(messages.provenance.unknown)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: messages.provenance.recover }));
+    await waitFor(() => expect(api.retry).toHaveBeenCalledTimes(2));
+    expect(api.retry.mock.calls.every(call => call[1] === "op-1")).toBe(true);
+    expect(api.memories).toHaveBeenCalledOnce();
+    expect(api.deleteMessages).not.toHaveBeenCalled();
+  });
+
   it("cancels an in-flight table download before it can export withdrawn evidence", async () => {
     const staleDownload = deferred<ReturnType<typeof response<typeof oldMemories>>>();
     api.memories.mockReturnValueOnce(staleDownload.promise);

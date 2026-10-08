@@ -10,10 +10,15 @@ describe("explicit accepted-operation recovery", () => {
     expect(hasUnconfirmedMutation({ pendingKey: null, operation: { status: "completed" } })).toBe(false);
   });
   it("offers recovery for historical capacity but not a permanently rejected input", () => {
-    expect(canResumeOperation({ status: "failed", error: { code: "reconciliation_too_large", retryable: false } })).toBe(true);
-    expect(canResumeOperation({ status: "failed", error: { code: "input_too_long", retryable: false } })).toBe(false);
-    expect(canResumeOperation({ status: "failed", error: { code: "model_unavailable", retryable: true } })).toBe(true);
-    expect(canResumeOperation({ status: "processing", error: null })).toBe(true);
-    expect(canResumeOperation({ status: "completed", error: null })).toBe(false);
+    expect(canResumeOperation({ kind: "import", status: "failed", error: { code: "reconciliation_too_large", retryable: false } })).toBe(true);
+    expect(canResumeOperation({ kind: "import", status: "failed", error: { code: "input_too_long", retryable: false } })).toBe(false);
+    expect(canResumeOperation({ kind: "import", status: "failed", error: { code: "model_unavailable", retryable: true } })).toBe(true);
+    expect(canResumeOperation({ kind: "import", status: "processing", error: null })).toBe(true);
+    expect(canResumeOperation({ kind: "import", status: "completed", error: null })).toBe(false);
+  });
+  it("explicitly resumes a repaired failed flush without allowing rejected input replay", () => {
+    const error = { code: "maintenance_invalid_identifier", retryable: false };
+    expect(canResumeOperation({ kind: "flush", status: "failed", error })).toBe(true);
+    expect(canResumeOperation({ kind: "import", status: "failed", error })).toBe(false);
   });
 });
