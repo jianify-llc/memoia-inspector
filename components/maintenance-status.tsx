@@ -13,10 +13,11 @@ export function MaintenanceNotice({ state, busy = false, onRecover }: {
   onRecover?: (operationId: string) => void;
 }) {
   const t = useTranslations("maintenance");
+  const failed = state.flushes.some(flush => flush.status === "failed");
   const pending = state.pending_blob_count > 0 || state.flushes.some(flush => flush.status !== "completed");
   return (
     <div role="status" className="space-y-1 rounded-md border p-3 text-sm">
-      <p className="flex items-center gap-2 font-medium">{t("title")} <Badge variant="secondary">{t(pending ? "pending" : "completed")}</Badge></p>
+      <p className="flex items-center gap-2 font-medium">{t("title")} <Badge variant="secondary">{t(failed ? "failed" : pending ? "pending" : "completed")}</Badge></p>
       <p>{t("pendingBlobs", { count: state.pending_blob_count })}</p>
       {pending ? <p className="text-muted-foreground">{t("stale")}</p> : null}
       {state.flushes.map(flush => (

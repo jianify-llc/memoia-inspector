@@ -24,6 +24,8 @@ describe("Fact confirmation is independent of derived UI state", () => {
     expect(html).toContain("maintenance_timeout");
     expect(html).toContain("does not require importing messages again");
     expect(html).toContain("Resume original flush");
+    expect(html.split("</p>")[0]).toContain("Failed");
+    expect(html.split("</p>")[0]).not.toContain("Pending");
   });
   it("allows explicit recovery after nonretryable failures but requires the failed task identity", () => {
     const manual = render({ ...state, flushes: [{ ...flush, retryable: false }] }, "en", () => undefined);
@@ -46,5 +48,9 @@ describe("Fact confirmation is independent of derived UI state", () => {
     expect(html).toContain("maintenance_timeout");
     expect(html).not.toContain("Resume original flush");
     expect(html).not.toContain("Up to date");
+  });
+  it("does not hide a failed original flush behind a new pending batch", () => {
+    const html = render({ pending_blob_count: 1, flushes: [flush, {...flush, operation_id: "new", status: "pending"}] });
+    expect(html.split("</p>")[0]).toContain("Failed");
   });
 });
