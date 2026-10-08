@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserMemory } from "@/components/user-memory";
 import { UserProvenance } from "@/components/user-provenance";
 import { hasUnconfirmedMutation, type ProvenanceMutation } from "@/lib/operation-recovery";
+import type { MaintenanceStatus } from "@jianify/memoia";
 
 /** Detail reads refresh on open; operation state belongs to the project Users view. */
 export function UserMemoryDetails({ userId, open, mutation, setMutation, onInvalidate, onResolved }: {
@@ -25,6 +26,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
   const router = useRouter();
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const request = useRef<AbortController | null>(null);
@@ -36,6 +38,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
     request.current = controller;
     setProfiles([]);
     setEvents([]);
+    setMaintenance(null);
     setLoading(true);
     setError(false);
     try {
@@ -45,6 +48,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
       if (response.code !== 0 || !response.data) { setError(true); return; }
       setProfiles(response.data.profiles);
       setEvents(response.data.events);
+      setMaintenance(response.data.maintenance);
     } catch {
       if (!controller.signal.aborted) setError(true);
     } finally {
@@ -62,6 +66,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
     request.current?.abort();
     setProfiles([]);
     setEvents([]);
+    setMaintenance(null);
     setLoading(false);
     setError(false);
     onInvalidate(userId);
@@ -87,6 +92,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
                 setIsLoading={setLoading}
                 profiles={profiles}
                 events={events}
+                maintenance={maintenance}
                 profilesFold
                 onRefresh={async () => { await Promise.all([refresh(), onResolved(userId)]); }}
                 canDownload={!loading && !error && Boolean(profiles.length || events.length)}

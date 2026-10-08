@@ -20,7 +20,7 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
-    "@jianify/memoia": "file:vendor/jianify-memoia-0.7.0.tgz",
+    "@jianify/memoia": "file:vendor/jianify-memoia-0.9.0.tgz",
     "@ai-sdk/openai": "^1.3.22",
     "@assistant-ui/react": "^0.10.24",
     "@assistant-ui/react-ai-sdk": "^0.10.14",

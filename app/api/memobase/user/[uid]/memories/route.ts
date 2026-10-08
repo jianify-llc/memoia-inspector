@@ -15,13 +15,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ uid: str
   try {
     const client = await memoiaClient();
     if (!client) return createApiError("Unauthorized", 401);
-    const [profileResult, eventResult] = await Promise.all([client.getProfiles(uid), client.getEvents(uid)]);
+    const [profileResult, eventResult, maintenance] = await Promise.all([client.getProfiles(uid), client.getEvents(uid), client.getMaintenance(uid)]);
     const profiles = profileResult.profiles;
     const events = eventResult.events;
 
     return createApiResponse({
       profiles: profiles,
       events: events,
+      maintenance,
     });
   } catch (error) {
     return memoiaApiError(error);

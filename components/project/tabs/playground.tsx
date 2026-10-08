@@ -16,6 +16,7 @@ import { UserProfile, UserEvent } from "@/api/models/memobase";
 import {
   getProfile,
   getEvent,
+  getPlaygroundMaintenance,
   insertMessages,
   deleteUser,
   initializePlaygroundUser,
@@ -24,6 +25,7 @@ import {
 import { toast } from "sonner";
 
 import { Project } from "@/types";
+import type { MaintenanceStatus } from "@jianify/memoia";
 
 export default function Playground({ project }: { project: Project }) {
   const t = useTranslations("project.playground");
@@ -37,6 +39,7 @@ export default function Playground({ project }: { project: Project }) {
   const lastUserRecordedAt = useRef<string>("");
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null);
   const [playgroundAvailable, setPlaygroundAvailable] = useState<boolean | null>(null);
   const chatApi = `${process.env["NEXT_PUBLIC_BASE_PATH"] || ""}/api/chat`;
 
@@ -76,8 +79,7 @@ export default function Playground({ project }: { project: Project }) {
             return;
           }
 
-          await fetchProfile();
-          await fetchEvent();
+          await refreshMemories();
         } catch {
           toast.error(t("insertRecordsFailed"));
         }
@@ -123,6 +125,23 @@ export default function Playground({ project }: { project: Project }) {
     }
   }, [t]);
 
+  const refreshMemories = useCallback(async () => {
+    // Fact 回执后只刷新派生状态；维护失败不重新提交消息。
+    await Promise.all([fetchProfile(), fetchEvent()]);
+    try {
+      const result = await getPlaygroundMaintenance();
+      if (result.code !== 0 || !result.data) {
+        setMaintenance(null);
+        toast.error(result.message || t("getRecordsFailed"));
+        return;
+      }
+      setMaintenance(result.data);
+    } catch {
+      setMaintenance(null);
+      toast.error(t("getRecordsFailed"));
+    }
+  }, [fetchProfile, fetchEvent, t]);
+
   useEffect(() => {
     let active = true;
     fetch(chatApi, { cache: "no-store" })
@@ -146,11 +165,10 @@ export default function Playground({ project }: { project: Project }) {
         toast.error(result.message === "OUTCOME_UNKNOWN" ? t("getRecordsFailed") : result.message || t("getRecordsFailed"));
         return;
       }
-      await fetchProfile();
-      await fetchEvent();
+      await refreshMemories();
     };
     init().catch(() => toast.error(t("getRecordsFailed")));
-  }, [fetchProfile, fetchEvent, playgroundAvailable, project, t]);
+  }, [refreshMemories, playgroundAvailable, project, t]);
 
   if (playgroundAvailable !== true) {
     return (
@@ -172,9 +190,9 @@ export default function Playground({ project }: { project: Project }) {
               setIsLoading={setIsLoading}
               events={events}
               profiles={profiles}
+              maintenance={maintenance}
               onRefresh={async () => {
-                await fetchProfile();
-                await fetchEvent();
+                await refreshMemories();
               }}
               onNewUser={async () => {
                 const result = await deleteUser();
@@ -182,14 +200,16 @@ export default function Playground({ project }: { project: Project }) {
                   toast.error(result.message || t("getRecordsFailed"));
                   return;
                 }
+                setProfiles([]);
+                setEvents([]);
+                setMaintenance(null);
                 initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
                 const initialized = await initializePlaygroundUser(initializationIdentity.current.id);
                 if (initialized.code !== 0) {
                   toast.error(initialized.message || t("getRecordsFailed"));
                   return;
                 }
-                await fetchProfile();
-                await fetchEvent();
+                await refreshMemories();
               }}
               canAdd
               canEdit

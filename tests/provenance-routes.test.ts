@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoiaError } from "@jianify/memoia";
 
-const sdk = vi.hoisted(() => ({ listSources: vi.fn(), listOperations: vi.fn(), getProfiles: vi.fn(), getHistory: vi.fn(), getSource: vi.fn(), deleteMessages: vi.fn(), getOperationByKey: vi.fn(), getOperation: vi.fn(), retryOperation: vi.fn() }));
+const sdk = vi.hoisted(() => ({ getMaintenance: vi.fn(), listSources: vi.fn(), listOperations: vi.fn(), getProfiles: vi.fn(), getHistory: vi.fn(), getSource: vi.fn(), deleteMessages: vi.fn(), getOperationByKey: vi.fn(), getOperation: vi.fn(), retryOperation: vi.fn() }));
 const factory = vi.hoisted(() => ({ client: vi.fn() }));
 vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client }));
 import { GET as provenance } from "@/app/api/memoia/user/[uid]/provenance/route";
@@ -16,6 +16,7 @@ beforeEach(() => {
   sdk.listOperations.mockResolvedValue({ operations: [] });
   sdk.getProfiles.mockResolvedValue({ profiles: [] });
   sdk.getHistory.mockResolvedValue({ entries: [] });
+  sdk.getMaintenance.mockResolvedValue({ pending_blob_count: 0, flushes: [] });
 });
 const params = { params: Promise.resolve({ uid: "user", source_id: "source" }) };
 const mutationHeaders = { origin: "http://localhost", "content-type": "application/json" };
@@ -40,7 +41,7 @@ describe("v2 provenance management", () => {
     expect(sdk.listSources).toHaveBeenCalledWith("user", { limit: 20, offset: 40 });
     expect(sdk.getHistory).toHaveBeenCalledWith("user", { limit: 20, offset: 40 });
     expect(sdk.listOperations).toHaveBeenCalledWith("user", { limit: 20, offset: 40 });
-    expect((await response.json()).data).toEqual({ sources: [], profiles: [], history: [], operations: [] });
+    expect((await response.json()).data).toEqual({ sources: [], profiles: [], history: [], operations: [], maintenance: { pending_blob_count: 0, flushes: [] } });
   });
 
   it("rejects an invalid page before invoking the backend", async () => {

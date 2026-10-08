@@ -11,5 +11,5 @@ export function hasUnconfirmedMutation(mutation: { pendingKey: string | null; op
 export function canResumeOperation(operation: Pick<Operation, "status" | "error">) {
   if (operation.status === "processing") return true;
   if (operation.status !== "failed") return false;
-  return Boolean(operation.error?.retryable || operation.error?.code === "reconciliation_too_large");
+  return Boolean(operation.error?.retryable || operation.error?.code === "reconciliation_too_large" || operation.error?.code === "related_facts_too_large");
 }

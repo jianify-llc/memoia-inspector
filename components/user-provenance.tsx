@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { canResumeOperation, hasUnconfirmedMutation, type ProvenanceMutation } from "@/lib/operation-recovery";
 import { appendSourcePage, type SourceCollection } from "@/lib/source-page";
+import { MaintenanceNotice } from "@/components/maintenance-status";
 
 /** Provenance reads locally; the detail owner coordinates mutation and memory refresh. */
 export function UserProvenance({ userId, mutation, setMutation, onInvalidate, onResolved }: {
@@ -171,6 +172,14 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
       ) : null}
       {data && !unresolved ? (
         <>
+          <MaintenanceNotice state={data.maintenance} busy={busy} onRecover={(id) => {
+            const existing = data.operations.find(item => item.operation_id === id);
+            if (existing) void recover(existing);
+            else void getOperation(userId, null, id).then(response => {
+              if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
+              void recover(response.data);
+            }).catch(() => toast.error(t("failed")));
+          }} />
           <h3 className="font-semibold">{t("sources")}</h3>
           {!data.sources.length ? <p>{t("empty")}</p> : data.sources.map((source) => (
             <Card key={source.source_id}>
@@ -191,6 +200,8 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
                   <div key={blob.blob_id} className="space-y-1 border-b pb-2 text-xs">
                     <code className="break-all">{blob.blob_id}</code>
                     <Badge variant="secondary">{blob.status}</Badge>
+                    <Badge variant="outline">{blob.kind}</Badge>
+                    {blob.flush ? <p className="break-all">flush: {blob.flush.operation_id} · {blob.flush.status}</p> : null}
                     <p>{blob.message_ids.join(", ")}</p>
                   </div>
                 ))}
@@ -251,6 +262,8 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
             <Card key={existing.operation_id}>
               <CardContent className="space-y-2 pt-4 text-sm">
                 <Badge variant="secondary">{existing.status}</Badge>
+                <Badge variant="outline">{existing.kind}</Badge>
+                {existing.result?.memory_version !== null && existing.result?.memory_version !== undefined ? <p>{t("committedVersion", { version: existing.result.memory_version })}</p> : null}
                 <p className="break-all">{existing.source_id}</p>
                 {existing.blob_id ? <p className="break-all text-xs">{existing.blob_id}</p> : null}
                 <p className="break-all text-xs">{existing.operation_id}</p>

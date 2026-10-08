@@ -49,7 +49,7 @@ beforeEach(() => {
   downloaded = [];
   api.memories.mockImplementation(async () => response(currentMemories));
   api.users.mockImplementation(async () => response({ users: [user(userCount)], count: 1 }));
-  api.provenance.mockResolvedValue(response({ sources: [{ source_id: "source-1", legacy: false, created_at: "2026-10-05T00:00:00Z" }], profiles: [], history: [], operations: [] }));
+  api.provenance.mockResolvedValue(response({ sources: [{ source_id: "source-1", legacy: false, created_at: "2026-10-05T00:00:00Z" }], profiles: [], history: [], operations: [], maintenance: { pending_blob_count: 0, flushes: [] } }));
   api.source.mockResolvedValue(response({ source_id: "source-1", blobs: [], evidence: [], message_ids: ["hobby", "craft"], deleted_message_ids: [], next_message_offset: null, next_blob_offset: null, next_evidence_offset: null }));
   api.deleteMessages.mockImplementation(async () => { currentMemories = newMemories; userCount = 1; return response(completed); });
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
@@ -155,7 +155,7 @@ describe("source mutation → all user memory views", () => {
 
   it("queries an accepted recovery by operation ID after an unknown response", async () => {
     const failed = { ...accepted, status: "failed", error: { code: "reconciliation_too_large", retryable: false } };
-    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed] }));
+    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed], maintenance: { pending_blob_count: 0, flushes: [] } }));
     api.retry.mockRejectedValue(new Error("lost recovery acknowledgement"));
     api.query.mockImplementation(async () => { currentMemories = newMemories; userCount = 1; return response(completed); });
     await openDetails();
@@ -176,7 +176,7 @@ describe("source mutation → all user memory views", () => {
 
   it("refreshes both views after direct completion of an accepted recovery", async () => {
     const failed = { ...accepted, status: "failed", error: { code: "provider_unavailable", retryable: true } };
-    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed] }));
+    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed], maintenance: { pending_blob_count: 0, flushes: [] } }));
     api.retry.mockImplementation(async () => { currentMemories = newMemories; userCount = 1; return response(completed); });
     await openDetails();
     tab(messages.project.users.provenance);

@@ -20,9 +20,9 @@ export async function POST(req: Request) {
     const result = await client.importBlob(uid, { source_id: "playground", idempotency_key,
       messages: messages.map((message, index) => ({ role: message.role, content: message.content,
         message_id: `${idempotency_key}:${index}`, occurred_at: message.created_at })) });
-    // 接受处理与完成是不同状态，不把 processing 当作记忆写入成功。
+    // completed 只确认 Fact 原子写入；后台 flush 失败不能重放正文。
     if (result.status !== "completed") return createApiError("Memory processing is not complete", 503);
-    return createApiResponse(null, "Imported");
+    return createApiResponse(result, "Facts imported");
   } catch (error) {
     if (error instanceof SyntaxError) return createApiError("Bad Request", 400);
     return memoiaApiError(error);

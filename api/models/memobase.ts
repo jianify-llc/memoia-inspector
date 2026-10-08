@@ -1,5 +1,5 @@
 import service, { Res } from "../http";
-import type { Profiles, Events, Users, Usage } from "@jianify/memoia";
+import type { Profiles, Events, Users, Usage, MaintenanceStatus, Operation } from "@jianify/memoia";
 import { z } from "zod";
 export type UserProfile = Profiles["profiles"][number];
 export type UserEvent = Events["events"][number];
@@ -19,7 +19,7 @@ export const insertMessages = (
     alias?: string | undefined;
     created_at: string;
   }[], idempotencyKey: string
-): Promise<Res<null>> =>
+): Promise<Res<Operation>> =>
   service.post("/api/memobase/insert", {
     idempotency_key: idempotencyKey,
     messages,
@@ -27,6 +27,9 @@ export const insertMessages = (
 
 export const getEvent = (): Promise<Res<UserEvent[]>> =>
   service.get("/api/memobase/event");
+
+export const getPlaygroundMaintenance = (): Promise<Res<MaintenanceStatus>> =>
+  service.get("/api/memobase/maintenance");
 
 export const addProfile = (content: string, topic: string, subTopic: string): Promise<Res<null>> =>
   service.post("/api/memobase/profile", {
@@ -79,5 +82,5 @@ export const updateConfig = (config: string): Promise<Res<null>> =>
   });
 
 export const getProjectUserMemories = (uid: string, signal?: AbortSignal) => {
-  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[] }>>(`/api/memobase/user/${uid}/memories`, undefined, undefined, signal);
+  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[], maintenance: MaintenanceStatus }>>(`/api/memobase/user/${uid}/memories`, undefined, undefined, signal);
 }

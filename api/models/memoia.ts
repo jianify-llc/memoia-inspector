@@ -1,4 +1,4 @@
-import type { History, Operation, Operations, Profiles, Source, Sources, SourceQuery } from "@jianify/memoia";
+import type { History, MaintenanceStatus, Operation, Operations, Profiles, Source, Sources, SourceQuery } from "@jianify/memoia";
 import service, { type Res } from "@/api/http";
 
 export type UserProvenanceData = {
@@ -6,6 +6,7 @@ export type UserProvenanceData = {
   profiles: Profiles["profiles"];
   history: History["entries"];
   operations: Operations["operations"];
+  maintenance: MaintenanceStatus;
 };
 
 const userPath = (uid: string) => `/api/memoia/user/${encodeURIComponent(uid)}`;

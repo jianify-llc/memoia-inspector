@@ -13,10 +13,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ uid:
     const offset = Number(query.get("offset") ?? 0);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) return createApiError("Invalid pagination", 400);
     const page = { limit, offset };
-    const [sources, profiles, history, operations] = await Promise.all([
+    const [sources, profiles, history, operations, maintenance] = await Promise.all([
       client.listSources(uid, page), client.getProfiles(uid), client.getHistory(uid, page), client.listOperations(uid, page),
+      client.getMaintenance(uid),
     ]);
-    return createApiResponse({ sources: sources.sources, profiles: profiles.profiles, history: history.entries, operations: operations.operations });
+    return createApiResponse({ sources: sources.sources, profiles: profiles.profiles, history: history.entries, operations: operations.operations, maintenance });
   } catch (error) {
     return memoiaApiError(error);
   }
