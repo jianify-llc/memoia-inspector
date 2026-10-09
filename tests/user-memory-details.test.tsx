@@ -87,6 +87,24 @@ const downloadText = async () => {
 const counterCells = () => [...document.querySelectorAll("tbody tr:first-child td")].slice(1, 3).map((cell) => cell.textContent);
 
 describe("source mutation → all user memory views", () => {
+  it("shows fact attribution and uncertainty without requiring legacy profile categories", async () => {
+    api.source.mockResolvedValue(response({ source_id: "source-1", blobs: [],
+      evidence: [
+        { fact_id: "reported", content: "User suspects Zhang is changing jobs", topic: null, sub_topic: null,
+          subject: "Zhang", reporter: "user", certainty: "uncertain", support_groups: [["hobby"]] },
+        { fact_id: "legacy", content: "User enjoys pottery", topic: "interest", sub_topic: "craft", support_groups: [["craft"]] },
+      ],
+      message_ids: ["hobby", "craft"], deleted_message_ids: [], next_message_offset: null, next_blob_offset: null, next_evidence_offset: null }));
+    await openDetails();
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
+    await screen.findByText(`${messages.provenance.subject}: Zhang`);
+    expect(screen.getByText(`${messages.provenance.reporter}: user`)).toBeTruthy();
+    expect(screen.getByText("uncertain")).toBeTruthy();
+    expect(screen.getByText("interest / craft")).toBeTruthy();
+    expect(screen.queryByText("/")).toBeNull();
+  });
+
   it("refreshes memories, counts and the actual downloaded JSON after completed deletion", async () => {
     await openDetails();
     expect(screen.getByTestId("memory-snapshot").textContent).toContain("hiking");

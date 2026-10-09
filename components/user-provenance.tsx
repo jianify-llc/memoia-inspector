@@ -210,7 +210,10 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
                 {selected.evidence.map((fact) => (
                   <div key={fact.fact_id} className="space-y-1 border-b pb-2">
                     <p>{fact.content}</p>
-                    <p className="text-xs text-muted-foreground">{fact.topic} / {fact.sub_topic}</p>
+                    {fact.topic || fact.sub_topic ? <p className="text-xs text-muted-foreground">{fact.topic} / {fact.sub_topic}</p> : null}
+                    {fact.subject ? <p className="text-xs">{t("subject")}: {fact.subject}</p> : null}
+                    {fact.reporter ? <p className="text-xs">{t("reporter")}: {fact.reporter}</p> : null}
+                    {fact.certainty ? <Badge variant="secondary">{fact.certainty}</Badge> : null}
                     <p className="break-all text-xs">{t("support")}: {fact.support_groups.map((group) => group.join(" + ")).join(" | ")}</p>
                   </div>
                 ))}

@@ -11,6 +11,9 @@ vi.mock("@/utils/memoia/client", async () => {
 });
 import { GET as source } from "@/app/api/memoia/user/[uid]/sources/[source_id]/route";
 import { GET as profiles, POST as addProfile } from "@/app/api/memobase/profile/route";
+import { GET as maintenance } from "@/app/api/memobase/maintenance/route";
+import { POST as recoverMaintenance } from "@/app/api/memoia/user/[uid]/operations/route";
+import { POST as insert } from "@/app/api/memobase/insert/route";
 
 beforeEach(() => transport.mockReset());
 
@@ -51,4 +54,63 @@ it.each(["{", "null", '{"content":42,"topic":"travel","sub_topic":"hotel"}'])("m
   const result = await addProfile(new Request("http://localhost", { method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" }, body }));
   expect(result.status).toBe(400);
   expect(transport).not.toHaveBeenCalled();
+});
+
+const flush = { operation_id: "22222222-2222-4222-8222-222222222222", status: "failed", blob_ids: [],
+  attempts: 4, available_at: "2026-04-03T00:00:00Z",
+  error: { code: "maintenance_timeout", retryable: true }, retryable: true };
+const maintenanceState = { pending_blob_count: 1, flushes: [flush] };
+
+it("validates flush status independently and recovers the original operation through the real SDK", async () => {
+  transport.mockImplementation(async () => Response.json(maintenanceState));
+  const status = await maintenance();
+  expect(status.status).toBe(200);
+  expect((await status.json()).data).toEqual(maintenanceState);
+  expect(String(transport.mock.calls[0][0])).toBe(`https://contract.invalid/api/users/${uid}/maintenance`);
+  const receipt = { operation_id: flush.operation_id, kind: "flush", source_id: null, blob_id: null,
+    status: "processing", result: null, error: null,
+    flush: { ...flush, status: "pending", attempts: 0, error: null } };
+  transport.mockResolvedValue(Response.json(receipt));
+  const response = await recoverMaintenance(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" }, body: JSON.stringify({ operation_id: flush.operation_id }),
+  }), { params: Promise.resolve({ uid }) });
+  expect(response.status).toBe(202);
+  expect((await response.json()).data).toEqual(receipt);
+  expect(String(transport.mock.calls[1][0])).toBe(`https://contract.invalid/api/users/${uid}/operations/${flush.operation_id}/retry`);
+  expect(transport).toHaveBeenCalledTimes(2);
+});
+
+it("keeps automatic backoff pending when the original flush has a retryable last error", async () => {
+  const error = { code: "maintenance_lease_expired", retryable: true };
+  const receipt = { operation_id: flush.operation_id, kind: "flush", source_id: null, blob_id: null,
+    status: "processing", result: null, error,
+    flush: { ...flush, status: "pending", attempts: 1, error, retryable: true } };
+  transport.mockResolvedValue(Response.json(receipt));
+  const response = await recoverMaintenance(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ operation_id: flush.operation_id }),
+  }), { params: Promise.resolve({ uid }) });
+  expect(response.status).toBe(202);
+  expect((await response.json()).data).toEqual(receipt);
+  expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("returns a fixed Fact receipt with no Event/Profile IDs instead of waiting for maintenance", async () => {
+  const receipt = { operation_id: "33333333-3333-4333-8333-333333333333", blob_id: "44444444-4444-4444-8444-444444444444", source_id: "playground",
+    status: "completed", result: { memory_version: 3, fact_ids: [], event_ids: [], profile_ids: [] }, error: null };
+  transport.mockResolvedValue(Response.json(receipt));
+  const response = await insert(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ idempotency_key: "fixed", messages: [{ role: "user", content: "fixture", created_at: "2026-04-03T00:00:00Z" }] }),
+  }));
+  expect(response.status).toBe(200);
+  expect((await response.json()).data).toEqual(receipt);
+  expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("rejects malformed maintenance progress and never fabricates an up-to-date state", async () => {
+  transport.mockResolvedValue(Response.json({ ...maintenanceState, flushes: [{ ...flush, attempts: "three" }] }));
+  const response = await maintenance();
+  expect(response.status).toBe(502);
+  expect((await response.json()).data).toBeNull();
 });
