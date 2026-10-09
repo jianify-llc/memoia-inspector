@@ -14,8 +14,18 @@ import { GET as profiles, POST as addProfile } from "@/app/api/memobase/profile/
 import { GET as maintenance } from "@/app/api/memobase/maintenance/route";
 import { POST as recoverMaintenance } from "@/app/api/memoia/user/[uid]/operations/route";
 import { POST as insert } from "@/app/api/memobase/insert/route";
+import { GET as usage } from "@/app/api/memobase/usage/route";
 
 beforeEach(() => transport.mockReset());
+
+it("preserves usage completeness through server SDK validation and the same-origin API", async () => {
+  const data = { usages: [{ date: "2026-10-09", total_input_token: 10, total_output_token: 5,
+    total_insert: 0, total_success_insert: 0, usage_complete: false }] };
+  transport.mockResolvedValue(Response.json(data));
+  const result = await usage(new Request("http://localhost?last_days=1"));
+  expect(result.status).toBe(200);
+  expect((await result.json()).data).toEqual(data);
+});
 
 it("valid bounded source pages traverse real SDK request and response validation", async () => {
   const data = { source_id: "dialog", legacy: false, created_at: "2026-04-03T00:00:00Z",

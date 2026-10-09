@@ -17,6 +17,8 @@
       "projectAdmin": "项目与权限"
     },
     "usage": {
+      "unavailable": "用量统计暂不可用，当前不展示总量。",
+      "incomplete": "部分用量未知：总量仅包含已记录的 Token，部分模型调用未返回用量。",
       "tokens": "你可以使用 {canUseTokens} tokens (大约 {canUseConversations} 轮对话)",
       "monthCost": "这个项目本月花费了 {cost} 个tokens"
     },

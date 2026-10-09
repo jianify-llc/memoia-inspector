@@ -17,6 +17,8 @@
       "projectAdmin": "Projects & permissions"
     },
     "usage": {
+      "unavailable": "Usage statistics unavailable. No total is shown.",
+      "incomplete": "Partial usage: totals show recorded tokens only; some model calls did not report usage.",
       "tokens": "You can use {canUseTokens} tokens (about {canUseConversations} conversations)",
       "monthCost": "This project this month cost {cost} tokens"
     },

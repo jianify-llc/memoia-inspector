@@ -66,8 +66,8 @@ export const getProjectUsers = (pid: string, search: string, order_by: string, o
   return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, undefined, signal);
 }
 
-export const getProjectUsage = (last_days: number = 7) => {
-  return service.get<Res<{ usages: GetProjectUsageItemResponse[] }>>(`/api/memobase/usage?last_days=${last_days}`);
+export const getProjectUsage = (last_days: number = 7, signal?: AbortSignal) => {
+  return service.get<Res<{ usages: GetProjectUsageItemResponse[] }>>(`/api/memobase/usage?last_days=${last_days}`, undefined, undefined, signal);
 };
 
 export const deleteEvent = (id: string): Promise<Res<null>> =>

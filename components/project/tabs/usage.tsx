@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -51,57 +51,61 @@ const chartConfig = {
 export default function Usage({ project }: { project: Project }) {
   const router = useRouter();
   const t = useTranslations("project");
-  const [loading, setLoading] = useState(true);
-  const [usage, setUsage] = useState<GetProjectUsageItemResponse[] | null>();
+  // The identity stays local; never render or log the project credential.
+  const owner = `${project.endpoint_url}\0${project.endpoint_token}`;
+  const [result, setResult] = useState<
+    | { owner: string; status: "loading" }
+    | { owner: string; status: "error" }
+    | { owner: string; status: "ready"; usage: GetProjectUsageItemResponse[] }
+  >({ owner, status: "loading" });
+  const [retry, setRetry] = useState(0);
 
   const [activeChart, setActiveChart] =
     useState<keyof typeof chartConfig>("tokens");
 
-  const total = useMemo(
-    () => ({
-      tokens:
-        usage?.reduce(
-          (acc, curr) => acc + curr.total_input_token + curr.total_output_token,
-          0
-        ) ?? 0,
-      insert:
-        usage?.reduce((acc, curr) => acc + curr.total_success_insert, 0) ?? 0,
-    }),
-    [usage]
-  );
-
-  const fetchUsage = useCallback(async () => {
-    try {
-      const res = await getProjectUsage();
-      if (res.code === 401) {
-        router.push("/login");
-      }
-      if (res.code === 0) {
-        setUsage(res.data?.usages);
-      } else {
-        toast.error(res.message || t("getProjectsFailed"));
-      }
-    } catch {
-      toast.error(t("getProjectsFailed"));
-    }
-  }, [router, t]);
-
   useEffect(() => {
-    if (!project) return;
-    setLoading(true);
-    fetchUsage().finally(() => {
-      setLoading(false);
-    });
-  }, [fetchUsage, project]);
+    const controller = new AbortController();
+    setResult({ owner, status: "loading" });
+    const load = async () => {
+      try {
+        const res = await getProjectUsage(7, controller.signal);
+        if (controller.signal.aborted) return;
+        if (res.code === 401) router.push("/login");
+        if (res.code === 0 && res.data?.usages) {
+          setResult({ owner, status: "ready", usage: res.data.usages });
+          return;
+        }
+        toast.error(res.message || t("usage.unavailable"));
+      } catch {
+        if (controller.signal.aborted) return;
+        toast.error(t("usage.unavailable"));
+      }
+      setResult({ owner, status: "error" });
+    };
+    void load();
+    return () => controller.abort();
+  }, [owner, retry, router, t]);
+
+  if (result.owner !== owner || result.status === "loading") {
+    return <Skeleton className="h-[60dvh] w-full" />;
+  }
+  if (result.status === "error") {
+    return <Card><CardContent className="space-y-2 pt-6">
+      <p role="alert">{t("usage.unavailable")}</p>
+      <button onClick={() => setRetry((count) => count + 1)}>{t("retry")}</button>
+    </CardContent></Card>;
+  }
+  const usage = result.usage;
+  const incomplete = usage.some((day) => day.usage_complete === false);
+  const total = {
+    tokens: usage.reduce((sum, day) => sum + day.total_input_token + day.total_output_token, 0),
+    insert: usage.reduce((sum, day) => sum + day.total_success_insert, 0),
+  };
 
   return (
     <>
-      {loading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-[60dvh] w-full" />
-        </div>
-      ) : (
         <Card className="!py-0">
+          {incomplete && <p role="status" className="px-6 py-3 text-sm text-muted-foreground">{t("usage.incomplete")}</p>}
           <CardHeader className="flex flex-col items-stretch space-y-0 border-b !p-0 sm:flex-row">
             <div className="flex">
               {["tokens", "insert"].map((key) => {
@@ -162,7 +166,6 @@ export default function Usage({ project }: { project: Project }) {
             </ChartContainer>
           </CardContent>
         </Card>
-      )}
     </>
   );
 }

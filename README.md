@@ -6,7 +6,7 @@ The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a se
 
 ## Source management
 
-User/profile/event/config/usage management and optional Playground share the fixed `@jianify/memoia@0.9.0` SDK from `vendor/`. Generated types and runtime validation come from the server OpenAPI. The selected project cookie supplies the same origin/token, with no second session or profile cache.
+User/profile/event/config/usage management and optional Playground share the fixed `@jianify/memoia@0.9.1` SDK from `vendor/`. Generated types and runtime validation come from the server OpenAPI. The selected project cookie supplies the same origin/token, with no second session or profile cache. Usage distinguishes unavailable statistics from zero; `usage_complete=false` labels the known subtotal as partial. Project changes abort/ignore previous requests instead of retaining the previous project's totals.
 
 Import and message-deletion `completed` receipts confirm Fact commits only. Fixed Blobs are sealed by explicit/timed flush (30s quiet / 120s maximum) into one user-scoped AgentLoop that atomically maintains Profiles and Events. The UI shows unbatched Blobs, flush identity, attempts, failure and original-operation recovery; pending or failed maintenance never reimports messages. Until flush succeeds, old derived text may remain readable. Event cards retain legacy text and show story time/location/keywords and an explicitly non-factual interpretation. These local contracts do not establish real model or browser acceptance.
 
