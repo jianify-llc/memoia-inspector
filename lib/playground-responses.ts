@@ -123,12 +123,17 @@ export function playgroundInput(history: ReturnType<typeof playgroundHistory>, r
 }
 
 /** Native Responses events become the unchanged Assistant UI data protocol, never another model call. */
-export function playgroundStream(stream: Stream<ResponseStreamEvent>, headers: HeadersInit, reference: { message_id: string; memoia_reference: string }) {
+export function playgroundStream(startStream: (signal: AbortSignal) => Promise<Stream<ResponseStreamEvent>>, headers: HeadersInit,
+  reference: { message_id: string; memoia_reference: string }) {
+  const cancellation = new AbortController();
+  let stream: Stream<ResponseStreamEvent> | undefined;
   const response = createDataStreamResponse({ headers, onError: () => "Internal Server Error", execute: async (writer) => {
+    // A provider failure must not strand a user turn without its original reference.
     writer.writeMessageAnnotation(reference);
     writer.write(formatDataStreamPart("start_step", { messageId: randomUUID() }));
     let completed = false, hasTools = false;
     try {
+      stream = await startStream(cancellation.signal);
       for await (const event of stream) {
         if (event.type === "response.output_text.delta") writer.write(formatDataStreamPart("text", event.delta));
         if (event.type === "response.output_item.done" && event.item.type === "function_call") {
@@ -155,17 +160,17 @@ export function playgroundStream(stream: Stream<ResponseStreamEvent>, headers: H
         }
       }
       if (!completed) throw new Error("Incomplete response");
-    } finally { stream.controller.abort(); }
+    } finally { stream?.controller.abort(); }
   } });
   const reader = response.body?.getReader();
-  if (!reader) { stream.controller.abort(); throw new Error("Missing response stream"); }
+  if (!reader) { cancellation.abort(); throw new Error("Missing response stream"); }
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       const result = await reader.read();
       if (result.done) controller.close();
       else controller.enqueue(result.value);
     },
-    async cancel(reason) { stream.controller.abort(); await reader.cancel(reason); },
+    async cancel(reason) { cancellation.abort(); stream?.controller.abort(); await reader.cancel(reason); },
   });
   return new Response(body, { status: response.status, headers: response.headers });
 }

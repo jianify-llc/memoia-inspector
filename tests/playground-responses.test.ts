@@ -190,7 +190,60 @@ describe("Playground final Responses HTTP contract", () => {
       headers: { origin: "http://localhost", "content-type": "application/json" },
       body: JSON.stringify({ messages: [{ role: "user", content: "hello", unstable_id: "m1" }] }) }));
     expect(response.status).toBe(200);
+    await vi.waitFor(() => expect(providerSignal).not.toBeNull());
     await response.body!.cancel();
     expect(providerSignal!.aborted).toBe(true);
+  });
+
+  it("delivers the original reference before provider HTTP failure and accepts the next turn", async () => {
+    const success = globalThis.fetch;
+    const failure = vi.fn(async () => new Response(JSON.stringify({ error: { message: "fixture failure" } }),
+      { status: 400, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", failure);
+    const messages = [{ role: "user", content: "first question" }];
+    const failed = await send(messages);
+    expect(failed.response.status).toBe(200); // Transport is open, model outcome is an error.
+    expect(failed.text.startsWith("8:")).toBe(true);
+    expect(failed.text).toContain('3:"Internal Server Error"');
+    expect(failed.text).not.toContain("finishReason");
+    expect(failure).toHaveBeenCalledTimes(1);
+    const original = token(failed.text);
+    state.context = "Changed memory must not replace the first turn";
+    vi.stubGlobal("fetch", success);
+    const retry = await send(messages, {}, [original]);
+    expect(retry.text).toContain('"finishReason":"stop"');
+    expect(token(retry.text)).toBe(original);
+    expect(state.reads).toBe(1);
+    const next = await send([...messages, { role: "assistant", content: [] },
+      { role: "user", content: "another question" }], {}, [original]);
+    expect(next.response.status).toBe(200);
+    expect(next.text).toContain('"finishReason":"stop"');
+    expect(state.reads).toBe(2);
+  });
+
+  it("requests explicit retry if an earlier reference was never delivered, without fetching replacements", async () => {
+    const response = await send([{ role: "user", content: "undelivered" },
+      { role: "assistant", content: [] }, { role: "user", content: "next" }]);
+    expect(response.response.status).toBe(409);
+    expect(response.text).toContain("Retry the earlier unfinished turn");
+    expect(state.reads).toBe(0);
+    expect(wires).toHaveLength(0);
+  });
+
+  it("cancels a provider request still waiting for headers", async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", (_url: unknown, init: RequestInit) => new Promise((_resolve, reject) => {
+      signal = init.signal!;
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const response = await POST(new Request("http://localhost/api/chat", { method: "POST",
+      headers: { origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hello", unstable_id: "m1" }] }) }));
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toMatch(/^8:/);
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    await reader.cancel();
+    expect(signal!.aborted).toBe(true);
   });
 });

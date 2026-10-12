@@ -57,6 +57,7 @@
       "notConfigured": "聊天演示未启用；其他标签中的 Memoia 管理功能不受影响。",
       "getRecordsFailed": "获取记录失败",
       "insertRecordsFailed": "保存记录失败",
+      "retryPreviousTurn": "上一轮尚未收到记忆引用，请先重试该轮回答，再继续聊天。",
       "flashRecordsFailed": "保存记录失败"
     },
     "config": {

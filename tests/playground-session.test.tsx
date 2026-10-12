@@ -53,3 +53,19 @@ it("retains references under StrictMode and clears them on user replacement, fen
   expect(state.insert).not.toHaveBeenCalled();
   expect(state.cancel).toHaveBeenCalled();
 });
+
+it("imports only a completed answer, never partial, cancelled or tool-only output", async () => {
+  render(<Playground project={project} />);
+  await screen.findByRole("button", { name: "New test user" });
+  await options().onResponse(new Response('8:[{"message_id":"m1","memoia_reference":"signed"}]\n', {
+    headers: { "x-last-user-message": "original", "x-last-user-recorded-at": "2026-10-12T00:00:00Z" },
+  }));
+  const reply = { id: "a1", role: "assistant", content: [{ type: "text", text: "partial" }], createdAt: new Date() };
+  for (const status of [{ type: "incomplete", reason: "error" }, { type: "incomplete", reason: "cancelled" },
+    { type: "requires-action", reason: "tool-calls" }, { type: "complete", reason: "unknown" }]) {
+    await options().onFinish({ ...reply, status });
+  }
+  expect(state.insert).not.toHaveBeenCalled();
+  await options().onFinish({ ...reply, status: { type: "complete", reason: "stop" } });
+  expect(state.insert).toHaveBeenCalledTimes(1);
+});

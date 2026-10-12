@@ -47,7 +47,9 @@ export async function POST(req: Request) {
       references = verifyReferences(reference_tokens, locale[1], project.project_id, uid);
       for (const user of history.users) {
         const reference = references.get(user.id);
-        if (!reference && user !== history.users.at(-1)) throw new Error("Missing original turn reference");
+        if (!reference && user !== history.users.at(-1)) {
+          return new Response("Retry the earlier unfinished turn: its original memory reference was not received.", { status: 409 });
+        }
         if (reference && (reference.fingerprint !== user.fingerprint ||
           user.recordedAt !== null && reference.recordedAt !== user.recordedAt)) throw new Error("Changed original message");
       }
@@ -67,11 +69,11 @@ export async function POST(req: Request) {
     const model = process.env.OPENAI_MODEL;
     if (!model) return new Response("Playground model is not configured", { status: 503 });
     const cache = supportsPromptCache(model);
-    const stream = await playgroundClient().responses.create({ model, stream: true, store: false,
+    return playgroundStream((signal) => playgroundClient().responses.create({ model, stream: true, store: false,
       instructions: PLAYGROUND_INSTRUCTIONS, input: playgroundInput(history, references, cache), tools: modelTools,
       ...(cache ? { prompt_cache_options: { mode: "implicit", ttl: "30m" },
-        prompt_cache_key: playgroundCacheKey(project.project_id, uid) } : {}) }, { signal: req.signal });
-    return playgroundStream(stream, { "x-last-user-message": encodeURIComponent(history.lastText),
+        prompt_cache_key: playgroundCacheKey(project.project_id, uid) } : {}) }, { signal: AbortSignal.any([req.signal, signal]) }),
+      { "x-last-user-message": encodeURIComponent(history.lastText),
       "x-last-user-recorded-at": reference.recordedAt }, { message_id: last.id, memoia_reference: referenceToken });
   } catch (error) {
     void error;

@@ -52,6 +52,9 @@ export default function Playground({ project }: { project: Project }) {
     sendExtraMessageFields: true,
     body: { get reference_tokens() { return [...referenceStore.values()]; } },
     onResponse: async (response) => {
+      if (response.status === 409 && mounted.current && references.current === referenceStore) {
+        toast.error(t("retryPreviousTurn"));
+      }
       if (response.status !== 200 || !mounted.current || references.current !== referenceStore) {
         return;
       }
@@ -63,6 +66,9 @@ export default function Playground({ project }: { project: Project }) {
     },
     onFinish: async (message) => {
       if (!mounted.current || references.current !== referenceStore || !message.content || message.content.length === 0) {
+        return;
+      }
+      if (message.role !== "assistant" || message.status.type !== "complete" || message.status.reason !== "stop") {
         return;
       }
 

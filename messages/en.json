@@ -57,6 +57,7 @@
       "notConfigured": "The chat demo is not enabled. Memoia management remains available in the other tabs.",
       "getRecordsFailed": "Failed to get records",
       "insertRecordsFailed": "Failed to save records",
+      "retryPreviousTurn": "The earlier turn did not receive its memory reference. Retry that reply before continuing.",
       "flashRecordsFailed": "Failed to update records"
     },
     "config": {
