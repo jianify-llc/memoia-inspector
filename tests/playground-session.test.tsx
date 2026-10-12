@@ -4,8 +4,11 @@ import { render, fireEvent, screen, waitFor, cleanup } from "@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ options: {} as Record<string, unknown>,
-  insert: vi.fn(async () => ({ code: 0 })), cancel: vi.fn(), reset: vi.fn() }));
-const runtime = { thread: { cancelRun: state.cancel, import: state.reset } };
+  running: false, insert: vi.fn(async () => ({ code: 0 })), cancel: vi.fn(), reset: vi.fn() }));
+const runtime = { thread: { getState: () => ({ isRunning: state.running }), cancelRun: () => {
+  if (!state.running) throw new Error("Empty thread rejects actions");
+  state.cancel(); state.running = false;
+}, import: state.reset } };
 vi.mock("@assistant-ui/react-ai-sdk", () => ({ useChatRuntime: (options: Record<string, unknown>) => {
   state.options = options; return runtime;
 } }));
@@ -29,6 +32,7 @@ const options = () => state.options as unknown as Options;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.running = false;
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ enabled: true })));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -48,10 +52,19 @@ it("retains references under StrictMode and clears them on user replacement, fen
   await old.onFinish({ id: "reply", role: "assistant", content: [{ type: "text", text: "late" }], createdAt: new Date() });
   expect(state.insert).not.toHaveBeenCalled();
   const latest = options();
+  state.running = true;
   view.unmount();
   await latest.onFinish({ id: "reply", role: "assistant", content: [{ type: "text", text: "after unmount" }], createdAt: new Date() });
   expect(state.insert).not.toHaveBeenCalled();
   expect(state.cancel).toHaveBeenCalled();
+});
+
+it("can leave a disabled empty Playground without sending an SDK thread action", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ enabled: false })));
+  const view = render(<StrictMode><Playground project={project} /></StrictMode>);
+  await screen.findByText("notConfigured");
+  view.unmount();
+  expect(state.cancel).not.toHaveBeenCalled();
 });
 
 it("imports only a completed answer, never partial, cancelled or tool-only output", async () => {

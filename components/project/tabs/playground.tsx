@@ -102,7 +102,11 @@ export default function Playground({ project }: { project: Project }) {
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; runtime.thread.cancelRun(); };
+    return () => {
+      mounted.current = false;
+      // The SDK's empty placeholder thread rejects actions, including cancellation.
+      if (runtime.thread.getState().isRunning) runtime.thread.cancelRun();
+    };
   }, [runtime]);
 
   const fetchProfile = useCallback(async () => {
@@ -213,7 +217,7 @@ export default function Playground({ project }: { project: Project }) {
                 await refreshMemories();
               }}
               onNewUser={async () => {
-                runtime.thread.cancelRun();
+                if (runtime.thread.getState().isRunning) runtime.thread.cancelRun();
                 const result = await deleteUser();
                 if (result.code !== 0) {
                   toast.error(result.message || t("getRecordsFailed"));
