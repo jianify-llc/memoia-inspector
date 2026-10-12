@@ -116,7 +116,7 @@ export default function ProjectPage() {
               <ProjectAdmin />
             </TabsContent>
             <TabsContent value="playground">
-              <Playground project={project} />
+              <Playground key={project.endpoint_url + "|" + project.endpoint_token} project={project} />
             </TabsContent>
           </Tabs>
         </>

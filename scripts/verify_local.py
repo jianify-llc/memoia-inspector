@@ -125,6 +125,7 @@ def verify(mode="full", base=None):
                 tests.extend(["--exclude", "tests/workflow-contract.test.ts"])
             if mode == "quick":
                 env["NODE_OPTIONS"] = "--import=" + str(source / "scripts/offline-node.mjs")
+                tests.extend(["--exclude", "tests/mutation-http.test.ts"])
             step(tests, source)
             env.pop("NODE_OPTIONS", None)
             if business and mode == "full":

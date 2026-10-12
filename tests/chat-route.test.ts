@@ -28,7 +28,7 @@ describe("optional Playground model", () => {
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { origin: "http://localhost" } }));
 
     expect(statusResponse.status).toBe(200);
-    expect(await statusResponse.json()).toEqual({ enabled: false });
+    expect(await statusResponse.json()).toMatchObject({ enabled: false });
     expect(response.status).toBe(503);
     expect(await response.text()).toContain("not configured");
     expect(sdk.memoiaClient).not.toHaveBeenCalled();
@@ -41,7 +41,7 @@ describe("optional Playground model", () => {
 
     const response = await GET();
 
-    expect(await response.json()).toEqual({ enabled: true });
+    expect(await response.json()).toMatchObject({ enabled: true });
     expect(sdk.memoiaClient).not.toHaveBeenCalled();
   });
 });

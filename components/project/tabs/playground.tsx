@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 import { Project } from "@/types";
 import type { MaintenanceStatus } from "@jianify/memoia";
+import { retainReference } from "@/lib/playground-reference-client";
 
 export default function Playground({ project }: { project: Project }) {
   const t = useTranslations("project.playground");
@@ -37,6 +38,9 @@ export default function Playground({ project }: { project: Project }) {
   }
   const lastUserMessageRef = useRef<string>("");
   const lastUserRecordedAt = useRef<string>("");
+  const references = useRef(new Map<string, string>());
+  const mounted = useRef(true);
+  const referenceStore = references.current;
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null);
@@ -45,17 +49,20 @@ export default function Playground({ project }: { project: Project }) {
 
   const runtime = useChatRuntime({
     api: chatApi,
-    onResponse: (response) => {
-      if (response.status !== 200) {
+    sendExtraMessageFields: true,
+    body: { get reference_tokens() { return [...referenceStore.values()]; } },
+    onResponse: async (response) => {
+      if (response.status !== 200 || !mounted.current || references.current !== referenceStore) {
         return;
       }
 
       const message = response.headers.get("x-last-user-message") || "";
       lastUserMessageRef.current = decodeURIComponent(message);
       lastUserRecordedAt.current = response.headers.get("x-last-user-recorded-at") || "";
+      await retainReference(response, referenceStore);
     },
     onFinish: async (message) => {
-      if (!message.content || message.content.length === 0) {
+      if (!mounted.current || references.current !== referenceStore || !message.content || message.content.length === 0) {
         return;
       }
 
@@ -86,6 +93,11 @@ export default function Playground({ project }: { project: Project }) {
       }
     },
   });
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; runtime.thread.cancelRun(); };
+  }, [runtime]);
 
   const fetchProfile = useCallback(async () => {
     setIsLoading(true);
@@ -195,6 +207,7 @@ export default function Playground({ project }: { project: Project }) {
                 await refreshMemories();
               }}
               onNewUser={async () => {
+                runtime.thread.cancelRun();
                 const result = await deleteUser();
                 if (result.code !== 0) {
                   toast.error(result.message || t("getRecordsFailed"));
@@ -203,6 +216,8 @@ export default function Playground({ project }: { project: Project }) {
                 setProfiles([]);
                 setEvents([]);
                 setMaintenance(null);
+                references.current = new Map();
+                runtime.thread.import({ messages: [] });
                 initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
                 const initialized = await initializePlaygroundUser(initializationIdentity.current.id);
                 if (initialized.code !== 0) {

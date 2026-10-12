@@ -19,9 +19,6 @@ importers:
 
   .:
     dependencies:
-      '@ai-sdk/openai':
-        specifier: ^1.3.22
-        version: 1.3.22(zod@3.25.67)
       '@assistant-ui/react':
         specifier: ^0.10.24
         version: 0.10.24(@types/react-dom@19.1.2(@types/react@19.1.2))(@types/react@19.1.2)(immer@10.1.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9)(use-sync-external-store@1.5.0(react@19.1.9))
@@ -38,8 +35,8 @@ importers:
         specifier: ^5.1.1
         version: 5.1.1(react-hook-form@7.58.1(react@19.1.9))
       '@jianify/memoia':
-        specifier: file:vendor/jianify-memoia-0.9.1.tgz
-        version: file:vendor/jianify-memoia-0.9.1.tgz
+        specifier: file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz
+        version: file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz
       '@next/third-parties':
         specifier: 15.5.26
         version: 15.5.26(next@15.5.26(@opentelemetry/api@1.9.0)(@types/node@24.0.3)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(react@19.1.9)
@@ -118,6 +115,9 @@ importers:
       ofetch:
         specifier: ^1.4.1
         version: 1.4.1
+      openai:
+        specifier: 7.32.0
+        version: 7.32.0(undici@5.29.0)(zod@3.25.67)
       react:
         specifier: 19.1.9
         version: 19.1.9
@@ -199,12 +199,6 @@ importers:
         version: 4.21.2
 
 packages:
-
-  '@ai-sdk/openai@1.3.22':
-    resolution: {integrity: sha512-QwA+2EkG0QyjVR+7h6FE7iOu2ivNqAVMm9UJZkVxxTk5OIq5fFJDTEI/zICEMuHImTTXR2JjsL6EirJ28Jc4cw==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.0.0
 
   '@ai-sdk/provider-utils@2.2.8':
     resolution: {integrity: sha512-fqhG+4sCVv8x7nFzYnFo19ryhAa3w096Kmc3hWxMQfW/TubPOmt3A6tYZhl4mUfQWWQMsuSkLrtjlWuXBVSGQA==}
@@ -1466,9 +1460,9 @@ packages:
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.9.1.tgz':
-    resolution: {integrity: sha512-Y9229n9t5WCXGV5Z0YqkyAMz7fqq6LFdXrV7cZsFMHx+rgGfpbvGtDWwU9d1nI5zI84RKY69O9dGFhMlgE6p+A==, tarball: file:vendor/jianify-memoia-0.9.1.tgz}
-    version: 0.9.1
+  '@jianify/memoia@file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz':
+    resolution: {integrity: sha512-flX58WwbiHILG9DS5CK4NNkBDOpJ77d4tLyG6mCu5zKN0c5UObWJCasQQHhybZdJOAI6OG8/YqVja3xGpCW17g==, tarball: file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz}
+    version: 0.10.0
     engines: {node: '>=22'}
 
   '@jridgewell/gen-mapping@0.3.8':
@@ -4871,6 +4865,30 @@ packages:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
 
+  openai@7.32.0:
+    resolution: {integrity: sha512-avqxu/jl1gsVBCBgFNPr9sTh+wZppQphuhhFy1zEvAJxEaJ4t0ery6hZdOT9kws/EcNTARoQcZs2IT3bliE1SA==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      undici: '>=5 <9'
+      ws: ^8.21.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      undici:
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
@@ -5897,12 +5915,6 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
-
-  '@ai-sdk/openai@1.3.22(zod@3.25.67)':
-    dependencies:
-      '@ai-sdk/provider': 1.1.3
-      '@ai-sdk/provider-utils': 2.2.8(zod@3.25.67)
-      zod: 3.25.67
 
   '@ai-sdk/provider-utils@2.2.8(zod@3.25.67)':
     dependencies:
@@ -7636,7 +7648,7 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.9.1.tgz': {}
+  '@jianify/memoia@file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz': {}
 
   '@jridgewell/gen-mapping@0.3.8':
     dependencies:
@@ -11491,6 +11503,11 @@ snapshots:
   onetime@5.1.2:
     dependencies:
       mimic-fn: 2.1.0
+
+  openai@7.32.0(undici@5.29.0)(zod@3.25.67):
+    optionalDependencies:
+      undici: 5.29.0
+      zod: 3.25.67
 
   optionator@0.9.4:
     dependencies:
