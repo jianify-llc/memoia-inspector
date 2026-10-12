@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  openai>undici: 6.27.0
   react-is: ^19.0.0-rc-69d4b800-20241021
   postcss: 8.5.23
   source-map-js: 1.2.2
@@ -35,8 +36,8 @@ importers:
         specifier: ^5.1.1
         version: 5.1.1(react-hook-form@7.58.1(react@19.1.9))
       '@jianify/memoia':
-        specifier: file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz
-        version: file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz
+        specifier: file:vendor/jianify-memoia-0.10.1-a0d34e1a3f91.tgz
+        version: file:vendor/jianify-memoia-0.10.1-a0d34e1a3f91.tgz
       '@next/third-parties':
         specifier: 15.5.26
         version: 15.5.26(next@15.5.26(@opentelemetry/api@1.9.0)(@types/node@24.0.3)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(react@19.1.9)
@@ -117,7 +118,7 @@ importers:
         version: 1.4.1
       openai:
         specifier: 7.32.0
-        version: 7.32.0(undici@5.29.0)(zod@3.25.67)
+        version: 7.32.0(zod@3.25.67)
       react:
         specifier: 19.1.9
         version: 19.1.9
@@ -1460,9 +1461,9 @@ packages:
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz':
-    resolution: {integrity: sha512-flX58WwbiHILG9DS5CK4NNkBDOpJ77d4tLyG6mCu5zKN0c5UObWJCasQQHhybZdJOAI6OG8/YqVja3xGpCW17g==, tarball: file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz}
-    version: 0.10.0
+  '@jianify/memoia@file:vendor/jianify-memoia-0.10.1-a0d34e1a3f91.tgz':
+    resolution: {integrity: sha512-UaZ1msd6mAsO2NRk8Lipa3mAsR9rhmoL/buf001NjdBixXNJvRvWA1dZtgSrE1txgXCpOdBBb6rMu+sB9QSZcg==, tarball: file:vendor/jianify-memoia-0.10.1-a0d34e1a3f91.tgz}
+    version: 0.10.1
     engines: {node: '>=22'}
 
   '@jridgewell/gen-mapping@0.3.8':
@@ -4872,7 +4873,7 @@ packages:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
       '@smithy/hash-node': '>=4.3.0 <5'
       '@smithy/signature-v4': '>=5.4.0 <6'
-      undici: '>=5 <9'
+      undici: 6.27.0
       ws: ^8.21.0
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
@@ -7648,7 +7649,7 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
-  '@jianify/memoia@file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz': {}
+  '@jianify/memoia@file:vendor/jianify-memoia-0.10.1-a0d34e1a3f91.tgz': {}
 
   '@jridgewell/gen-mapping@0.3.8':
     dependencies:
@@ -11504,9 +11505,8 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@7.32.0(undici@5.29.0)(zod@3.25.67):
+  openai@7.32.0(zod@3.25.67):
     optionalDependencies:
-      undici: 5.29.0
       zod: 3.25.67
 
   optionator@0.9.4:

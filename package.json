@@ -25,7 +25,7 @@
     "@assistant-ui/react-markdown": "^0.10.5",
     "@codemirror/lang-yaml": "^6.1.2",
     "@hookform/resolvers": "^5.1.1",
-    "@jianify/memoia": "file:vendor/jianify-memoia-0.10.0-f06cf7387862.tgz",
+    "@jianify/memoia": "file:vendor/jianify-memoia-0.10.1-a0d34e1a3f91.tgz",
     "@next/third-parties": "15.5.26",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -84,6 +84,7 @@
   },
   "pnpm": {
     "overrides": {
+      "openai>undici": "6.27.0",
       "react-is": "^19.0.0-rc-69d4b800-20241021",
       "postcss": "8.5.23",
       "source-map-js": "1.2.2",

@@ -6,7 +6,7 @@ The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a se
 
 ## Source management
 
-User/profile/event/config/usage management and optional Playground share the fixed `@jianify/memoia@0.10.0` SDK from `vendor/`. Generated types and runtime validation come from the server OpenAPI. The selected project cookie supplies the same origin/token, with no second session or profile cache. Usage distinguishes unavailable statistics from zero; `usage_complete=false` labels the known subtotal as partial. Project changes abort/ignore previous requests instead of retaining the previous project's totals.
+User/profile/event/config/usage management and optional Playground share the fixed `@jianify/memoia@0.10.1` SDK from `vendor/`. Generated types and runtime validation come from the server OpenAPI. The selected project cookie supplies the same origin/token, with no second session or profile cache. Usage distinguishes unavailable statistics from zero; `usage_complete=false` labels the known subtotal as partial. Project changes abort/ignore previous requests instead of retaining the previous project's totals.
 
 Import and message-deletion `completed` receipts confirm Fact commits only. Fixed Blobs are sealed by explicit/timed flush (30s quiet / 120s maximum) into one user-scoped AgentLoop that atomically maintains Profiles and Events. The UI shows unbatched Blobs, flush identity, attempts, failure and original-operation recovery; pending or failed maintenance never reimports messages. Until flush succeeds, old derived text may remain readable. Event cards retain legacy text and show story time/location/keywords and an explicitly non-factual interpretation. These local contracts do not establish real model or browser acceptance.
 
@@ -40,6 +40,8 @@ All Cookie-backed write routes (including the retained optional Playground) vali
 History-capacity failures (`reconciliation_too_large`) are not automatically retried. Keep/query the accepted operation key even for HTTP 413: withdrawal may already have hidden evidence. After correcting capacity or the affected evidence scope, the existing explicit recovery control resumes the same operation; it never creates a new key or resubmits message bodies. Ordinary oversized-input failures remain non-recoverable without changing the input range.
 
 Use Node.js 24 LTS and pnpm 10.12.4:
+
+`openai`'s optional `undici` peer is pinned within its supported range to 6.27.0. Otherwise the legacy Cloudflare development toolchain can supply vulnerable 5.29.0 to the production SDK. Native fetch remains the normal transport; this pin does not change model/retry behavior.
 
 ```bash
 pnpm install --frozen-lockfile
