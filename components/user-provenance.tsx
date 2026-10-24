@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
-import type { Operation, Source } from "@jianify/memoia";
-import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, type UserProvenanceData } from "@/api/models/memoia";
+import type { Operation, Source, UpdateFact } from "@jianify/memoia";
+import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, updateFact, deleteFact, type UserProvenanceData } from "@/api/models/memoia";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,9 +12,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { canResumeOperation, hasUnconfirmedMutation, type ProvenanceMutation } from "@/lib/operation-recovery";
+import { canResumeOperation, hasUnconfirmedMutation, type FactCorrectionDraft, type ProvenanceMutation } from "@/lib/operation-recovery";
 import { appendSourcePage, type SourceCollection } from "@/lib/source-page";
 import { MaintenanceNotice } from "@/components/maintenance-status";
+import { FactCorrection, type FactProposal } from "@/components/fact-correction";
 
 /** Provenance reads locally; the detail owner coordinates mutation and memory refresh. */
 export function UserProvenance({ userId, mutation, setMutation, onInvalidate, onResolved }: {
@@ -33,7 +34,11 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
   const [selected, setSelected] = useState<Source | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   const [confirm, setConfirm] = useState(false);
+  const [inputRequiredOperationId, setInputRequiredOperationId] = useState<string | null>(null);
   const { busy, pendingKey, operation } = mutation;
+  // The per-user mutation owner survives tab/sheet unmounts and late responses.
+  const correction = mutation.correction ?? null;
+  const setCorrection = (value: FactCorrectionDraft | null) => setMutation((current) => ({ ...current, correction: value }));
   const unresolved = hasUnconfirmedMutation(mutation);
   const setBusy = (value: boolean) => setMutation((current) => ({ ...current, busy: value }));
   const setPendingKey = (value: string | null) => setMutation((current) => ({ ...current, pendingKey: value }));
@@ -44,6 +49,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     setData(null);
     setSelected(null);
     setSelectedMessages([]);
+    setConfirm(false);
     if (unresolved) { setLoading(false); return () => controller.abort(); }
     setLoading(true);
     setError(false);
@@ -59,9 +65,11 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
   const acceptOperation = (result: Operation) => {
     setOperation(result);
     if (result.status === "completed") {
+      setInputRequiredOperationId(null);
       setPendingKey(null);
       setSelected(null);
       setSelectedMessages([]);
+      setCorrection(null);
       setRevision((value) => value + 1);
       onResolved();
       toast.success(t("completed"));
@@ -74,6 +82,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
 
   const deleteMessages = async () => {
     if (!selected || !selectedMessages.length || unresolved || busy) return;
+    setCorrection(null);
     const key = `inspector:delete-messages:${crypto.randomUUID()}`;
     setPendingKey(key);
     setOperation(null);
@@ -86,6 +95,33 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
         // An unclassified/server failure may have committed; retain its key.
         // 413 can occur after accepted withdrawal hid evidence; query its key.
         if ([400, 401, 403, 415, 422].includes(response.code)) {
+          setPendingKey(null);
+          onResolved();
+        }
+        toast.error(response.message === "OUTCOME_UNKNOWN" ? t("unknown") : response.message || t("failed"));
+        return;
+      }
+      acceptOperation(response.data);
+    } catch { toast.error(t("unknown")); }
+    finally { setBusy(false); }
+  };
+
+  const correctFact = async (proposal: FactProposal | Pick<FactProposal, "reason" | "expected_revision">) => {
+    if (!correction || unresolved || busy) return;
+    const { fact, mode } = correction;
+    setCorrection({ ...correction, submitted: true });
+    const key = `inspector:correct-fact:${crypto.randomUUID()}`;
+    setPendingKey(key);
+    setOperation(null);
+    setBusy(true);
+    onInvalidate();
+    try {
+      const input = { ...proposal, idempotency_key: key };
+      const response = mode === "edit" ? await updateFact(userId, fact.fact_id, input as UpdateFact) : await deleteFact(userId, fact.fact_id, input);
+      if (response.code !== 0 || !response.data) {
+        const missingTarget = response.code === 404 && response.message === "fact_not_found";
+        if ([400, 401, 403, 415, 422].includes(response.code) || missingTarget) {
+          if (missingTarget) setCorrection(null);
           setPendingKey(null);
           onResolved();
         }
@@ -128,7 +164,14 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     onInvalidate();
     try {
       const response = await retryOperation(userId, known.operation_id);
-      if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
+      if (response.code !== 0 || !response.data) {
+        if (known.kind === "correct" && response.code === 409 && response.message === "input_required") {
+          setInputRequiredOperationId(known.operation_id);
+          toast.error(t("inputRequiredQuery"));
+        } else toast.error(response.message || t("failed"));
+        return;
+      }
+      setInputRequiredOperationId(null);
       acceptOperation(response.data);
     } catch { toast.error(t("unknown")); }
     finally { setBusy(false); }
@@ -163,10 +206,19 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
           <CardContent className="space-y-2 pt-4">
             <p role="status">{operation?.status === "failed" ? t("failed") : operation?.status === "processing" ? t("processing") : t("unknown")}</p>
             {operation?.error ? <p>{operation.error.code}</p> : null}
+            {operation?.kind === "correct" || pendingKey?.startsWith("inspector:correct-fact:") ? <p className="text-sm">{t("expiredCorrection")}</p> : null}
             <code className="block break-all text-xs">{pendingKey || operation?.operation_id}</code>
             <Button size="sm" disabled={busy} onClick={() => void query()}>{t("query")}</Button>
             {operation && canResumeOperation(operation) ? (
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void recover()}>{t("recover")}</Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void recover()}>{t(operation.kind === "correct" && (operation.error?.code === "input_required" || inputRequiredOperationId === operation.operation_id) ? "recoverReplenished" : "recover")}</Button>
+            ) : null}
+            {operation?.kind === "correct" && operation.status === "failed" && !canResumeOperation(operation) && operation.error?.code !== "input_required" ? (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                setPendingKey(null);
+                setOperation(null);
+                setRevision(value => value + 1);
+                onResolved();
+              }}>{t("dismissRejectedCorrection")}</Button>
             ) : null}
           </CardContent>
         </Card>
@@ -187,7 +239,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
               <CardContent className="space-y-2 pt-4">
                 {source.legacy ? <Badge variant="secondary">legacy</Badge> : null}
                 <p className="break-all text-xs text-muted-foreground">{source.source_id}</p>
-                <p className="text-xs">{new Date(source.created_at).toLocaleString()}</p>
+                <p className="text-xs">{t("sourceCreated")}: {new Date(source.created_at).toLocaleString()}</p>
                 <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void inspect(source.source_id)}>{t("inspect")}</Button>
               </CardContent>
             </Card>
@@ -202,6 +254,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
                     <code className="break-all">{blob.blob_id}</code>
                     <Badge variant="secondary">{blob.status}</Badge>
                     <Badge variant="outline">{blob.kind}</Badge>
+                    <p>{t("blobCreated")}: {new Date(blob.created_at).toLocaleString()}</p>
                     {blob.flush ? <p className="break-all">flush: {blob.flush.operation_id} · {blob.flush.status}</p> : null}
                     <p>{blob.message_ids.join(", ")}</p>
                   </div>
@@ -214,7 +267,21 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
                     {fact.subject ? <p className="text-xs">{t("subject")}: {fact.subject}</p> : null}
                     {fact.reporter ? <p className="text-xs">{t("reporter")}: {fact.reporter}</p> : null}
                     {fact.certainty ? <Badge variant="secondary">{fact.certainty}</Badge> : null}
+                    <p className="break-all text-xs">Fact {fact.fact_id} · Blob {fact.blob_id} · {t("factRevision", { revision: fact.revision || 1 })}</p>
+                    <p className="text-xs">{t("factCreated")}: {fact.created_at ? new Date(fact.created_at).toLocaleString() : t("unknownTime")}</p>
+                    <p className="text-xs">{t("factUpdated")}: {fact.updated_at ? new Date(fact.updated_at).toLocaleString() : t("unknownTime")}</p>
+                    {fact.source_messages?.map(message => <p key={message.message_id} className="break-all text-xs">{t("messageRecorded")}: {message.message_id} · {new Date(message.recorded_at).toLocaleString()}{message.time_zone ? ` · ${message.time_zone}` : ""}</p>)}
+                    <p className="text-xs">{t("factTime")}: {fact.fact_time ? `${fact.fact_time.start || "—"} / ${fact.fact_time.end || "—"} · ${fact.fact_time.precision}` : t("unknownTime")}</p>
                     <p className="break-all text-xs">{t("support")}: {fact.support_groups.map((group) => group.join(" + ")).join(" | ")}</p>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <Button size="sm" variant="outline" disabled={busy || unresolved || !selected.blobs.some(blob => blob.blob_id === fact.blob_id) || !fact.revision} onClick={() => setCorrection({ fact, mode: "edit" })}>{t("editFact")}</Button>
+                      <Button size="sm" variant="destructive" disabled={busy || unresolved || !fact.revision} onClick={() => setCorrection({ fact, mode: "delete" })}>{t("deleteFact")}</Button>
+                    </div>
+                    {!selected.blobs.some(blob => blob.blob_id === fact.blob_id) ? <p className="text-xs text-muted-foreground">{t("loadOriginalBlob")}</p> : null}
+                    {correction?.fact.fact_id === fact.fact_id ? <FactCorrection key={`${fact.fact_id}:${fact.revision}:${correction.mode}`} fact={fact} mode={correction.mode} draft={correction.draft} submitted={correction.submitted}
+                      onDraftChange={draft => setMutation(current => current.correction ? { ...current, correction: { ...current.correction, draft } } : current)}
+                      messageIds={(selected.blobs.find(blob => blob.blob_id === fact.blob_id)?.message_ids || []).filter(id => !selected.deleted_message_ids.includes(id))}
+                      busy={busy || unresolved} onCancel={() => setCorrection(null)} onSubmit={proposal => void correctFact(proposal)} /> : null}
                   </div>
                 ))}
                 {selected.next_evidence_offset !== null ? <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void more("evidence")}>{t("moreEvidence")}</Button> : null}
@@ -272,8 +339,9 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
                 {existing.blob_id ? <p className="break-all text-xs">{existing.blob_id}</p> : null}
                 <p className="break-all text-xs">{existing.operation_id}</p>
                 {existing.error ? <p>{existing.error.code}</p> : null}
+                {existing.kind === "correct" && existing.error?.code === "input_required" ? <p className="text-sm">{t("expiredCorrection")}</p> : null}
                 {canResumeOperation(existing) ? (
-                  <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void recover(existing)}>{t("recover")}</Button>
+                  <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void recover(existing)}>{t(existing.kind === "correct" && existing.error?.code === "input_required" ? "recoverReplenished" : "recover")}</Button>
                 ) : null}
               </CardContent>
             </Card>

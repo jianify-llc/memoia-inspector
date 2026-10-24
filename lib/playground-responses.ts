@@ -1,6 +1,7 @@
-/** Playground-only Responses assembly and existing AI SDK 4 UI stream bridge. */
+/** Playground-only Responses assembly and the official Assistant UI data stream bridge. */
 import { createHash, randomUUID } from "node:crypto";
-import { coreMessageSchema, createDataStreamResponse, formatDataStreamPart } from "ai";
+import { z } from "zod";
+import { createAssistantStreamResponse, type AssistantStreamChunk } from "assistant-stream";
 import type { ResponseInput, ResponseInputItem, ResponseInputText, ResponseInputMessageContentList, ResponseStreamEvent, FunctionTool } from "openai/resources/responses/responses";
 import type { Stream } from "openai/core/streaming";
 import { messageFingerprint, type TurnReference } from "./playground-reference";
@@ -33,6 +34,19 @@ const developer = (tag: string, value: unknown, cache = false): ResponseInputIte
 export const playgroundCacheKey = (projectId: string, userId: string) =>
   createHash("sha256").update(JSON.stringify([projectId, userId])).digest("hex");
 
+// Only the wire parts handled below are accepted; model generation stays in Responses.
+const textPart = z.object({ type: z.literal("text"), text: z.string() });
+const toolCall = z.object({ type: z.literal("tool-call"), toolCallId: z.string(), toolName: z.string(), args: z.record(z.string(), z.unknown()) });
+const messageSchema = z.discriminatedUnion("role", [
+  z.object({ role: z.literal("user"), content: z.union([z.string(), z.array(z.union([textPart,
+    z.object({ type: z.literal("image"), image: z.string() }),
+    z.object({ type: z.literal("file"), data: z.string(), mimeType: z.string(), filename: z.string().optional() }),
+  ]))]) }),
+  z.object({ role: z.literal("assistant"), content: z.union([z.string(), z.array(z.union([textPart, toolCall]))]) }),
+  z.object({ role: z.literal("tool"), content: z.array(z.object({ type: z.literal("tool-result"),
+    toolCallId: z.string(), toolName: z.string(), result: z.unknown() })) }),
+]);
+
 /** Validate the existing CoreMessage boundary, not a second browser conversation format. */
 export function playgroundHistory(messages: unknown) {
   if (!Array.isArray(messages) || !messages.length) throw new Error("Invalid conversation");
@@ -40,8 +54,8 @@ export function playgroundHistory(messages: unknown) {
   let lastText = "", recordedAt: string | null = null, lastUserOffset = -1;
   const users: Array<{ id: string; fingerprint: string; offset: number; recordedAt: string | null }> = [];
   for (const value of messages) {
-    const parsed = coreMessageSchema.safeParse(value);
-    if (!parsed.success || parsed.data.role === "system") throw new Error("Invalid conversation");
+    const parsed = messageSchema.safeParse(value);
+    if (!parsed.success) throw new Error("Invalid conversation");
     const message = parsed.data;
     const date = typeof value.createdAt === "string" ? value.createdAt : null;
     if (message.role === "user") {
@@ -73,12 +87,10 @@ export function playgroundHistory(messages: unknown) {
       } else if (part.type === "text") {
         content.push({ type: "input_text", text: part.text });
       } else if (part.type === "image" && message.role === "user") {
-        const image = part.image instanceof URL ? part.image.toString() : part.image;
-        if (typeof image !== "string") throw new Error("Invalid image");
+        const image = part.image;
         content.push({ type: "input_image", image_url: image, detail: "auto" });
       } else if (part.type === "file" && message.role === "user") {
-        const data = part.data instanceof URL ? part.data.toString() : part.data;
-        if (typeof data !== "string") throw new Error("Invalid file");
+        const data = part.data;
         content.push(data.startsWith("https://") || data.startsWith("http://") ? { type: "input_file", file_url: data } :
           { type: "input_file", file_data: data, filename: part.filename ?? "attachment" });
       } else throw new Error("Unsupported content");
@@ -127,19 +139,19 @@ export function playgroundStream(startStream: (signal: AbortSignal) => Promise<S
   reference: { message_id: string; memoia_reference: string }) {
   const cancellation = new AbortController();
   let stream: Stream<ResponseStreamEvent> | undefined;
-  const response = createDataStreamResponse({ headers, onError: () => "Internal Server Error", execute: async (writer) => {
+  const response = createAssistantStreamResponse(async (writer) => {
     // A provider failure must not strand a user turn without its original reference.
-    writer.writeMessageAnnotation(reference);
-    writer.write(formatDataStreamPart("start_step", { messageId: randomUUID() }));
+    writer.enqueue({ type: "annotations", path: [], annotations: [reference] });
+    writer.enqueue({ type: "step-start", path: [], messageId: randomUUID() });
     let completed = false, hasTools = false;
     try {
       stream = await startStream(cancellation.signal);
       for await (const event of stream) {
-        if (event.type === "response.output_text.delta") writer.write(formatDataStreamPart("text", event.delta));
+        if (event.type === "response.output_text.delta") writer.appendText(event.delta);
         if (event.type === "response.output_item.done" && event.item.type === "function_call") {
           hasTools = true;
-          writer.write(formatDataStreamPart("tool_call", { toolCallId: event.item.call_id, toolName: event.item.name,
-            args: JSON.parse(event.item.arguments) }));
+          writer.addToolCallPart({ toolCallId: event.item.call_id, toolName: event.item.name,
+            args: JSON.parse(event.item.arguments) }).close();
         }
         if (event.type === "response.output_text.done" && !event.text) throw new Error("Empty response");
         if (event.type === "response.refusal.delta" || event.type === "response.failed" ||
@@ -155,13 +167,17 @@ export function playgroundStream(startStream: (signal: AbortSignal) => Promise<S
             cache_write: count(details?.cache_write_tokens) });
           const finish = { finishReason: hasTools ? "tool-calls" as const : "stop" as const,
             ...(usage ? { usage: { promptTokens: usage.input_tokens, completionTokens: usage.output_tokens } } : {}) };
-          writer.write(formatDataStreamPart("finish_step", { ...finish, isContinued: false }));
-          writer.write(formatDataStreamPart("finish_message", finish));
+          // The encoder forwards legacy V4 usage unchanged; its newer TS type uses different names.
+          // Keep the client wire names and omit unknown usage rather than inventing zero.
+          writer.enqueue({ type: "step-finish", path: [], ...finish, isContinued: false } as unknown as AssistantStreamChunk);
+          writer.enqueue({ type: "message-finish", path: [], ...finish } as unknown as AssistantStreamChunk);
         }
       }
       if (!completed) throw new Error("Incomplete response");
+    } catch {
+      writer.enqueue({ type: "error", path: [], error: "Internal Server Error" });
     } finally { stream?.controller.abort(); }
-  } });
+  });
   const reader = response.body?.getReader();
   if (!reader) { cancellation.abort(); throw new Error("Missing response stream"); }
   const body = new ReadableStream<Uint8Array>({
@@ -172,5 +188,7 @@ export function playgroundStream(startStream: (signal: AbortSignal) => Promise<S
     },
     async cancel(reason) { cancellation.abort(); stream?.controller.abort(); await reader.cancel(reason); },
   });
-  return new Response(body, { status: response.status, headers: response.headers });
+  const responseHeaders = new Headers(response.headers);
+  new Headers(headers).forEach((value, key) => responseHeaders.set(key, value));
+  return new Response(body, { status: response.status, headers: responseHeaders });
 }

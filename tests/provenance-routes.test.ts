@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoiaError } from "@jianify/memoia";
 
-const sdk = vi.hoisted(() => ({ getMaintenance: vi.fn(), listSources: vi.fn(), listOperations: vi.fn(), getProfiles: vi.fn(), getHistory: vi.fn(), getSource: vi.fn(), deleteMessages: vi.fn(), getOperationByKey: vi.fn(), getOperation: vi.fn(), retryOperation: vi.fn() }));
+const sdk = vi.hoisted(() => ({ updateFact: vi.fn(), deleteFact: vi.fn(), getMaintenance: vi.fn(), listSources: vi.fn(), listOperations: vi.fn(), getProfiles: vi.fn(), getHistory: vi.fn(), getSource: vi.fn(), deleteMessages: vi.fn(), getOperationByKey: vi.fn(), getOperation: vi.fn(), retryOperation: vi.fn() }));
 const factory = vi.hoisted(() => ({ client: vi.fn() }));
 vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client }));
 import { GET as provenance } from "@/app/api/memoia/user/[uid]/provenance/route";
 import { GET as sourceDetail } from "@/app/api/memoia/user/[uid]/sources/[source_id]/route";
 import { POST as retract } from "@/app/api/memoia/user/[uid]/sources/[source_id]/messages/delete/route";
 import { GET as operation, POST as resume } from "@/app/api/memoia/user/[uid]/operations/route";
+import { PUT as correctFact } from "@/app/api/memoia/user/[uid]/facts/[fact_id]/route";
+import { POST as removeFact } from "@/app/api/memoia/user/[uid]/facts/[fact_id]/delete/route";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -22,6 +24,32 @@ const params = { params: Promise.resolve({ uid: "user", source_id: "source" }) }
 const mutationHeaders = { origin: "http://localhost", "content-type": "application/json" };
 
 describe("v2 provenance management", () => {
+  const factParams = { params: Promise.resolve({ uid: "user", fact_id: "fact" }) };
+  const correction = { idempotency_key: "original-key", expected_revision: 3, reason: "Verified original conversation", content: "Corrected fact", subject: "user", reporter: "friend", certainty: "reported", support_groups: [["m1", "m2"], ["m3"]], fact_time: null };
+  it.each([["PUT", correctFact, "updateFact"], ["POST", removeFact, "deleteFact"]] as const)("forwards a targeted %s correction through the SDK with original revision/key", async (method, route, sdkMethod) => {
+    sdk[sdkMethod].mockResolvedValue({ kind: "correct", status: "processing", operation_id: "original-operation" });
+    const input = method === "PUT" ? correction : { idempotency_key: correction.idempotency_key, expected_revision: 3, reason: correction.reason };
+    const response = await route(new Request("http://localhost", { method, headers: mutationHeaders, body: JSON.stringify(input) }), factParams);
+    expect(response.status).toBe(202);
+    expect(sdk[sdkMethod]).toHaveBeenCalledExactlyOnceWith("user", "fact", input, expect.objectContaining({ deadline: expect.any(Number) }));
+    expect(sdk.deleteMessages).not.toHaveBeenCalled();
+  });
+  it.each([["PUT", correctFact, "updateFact"], ["POST", removeFact, "deleteFact"]] as const)("guards malformed %s correction bodies and project access", async (method, route, sdkMethod) => {
+    expect((await route(new Request("http://localhost", { method, headers: mutationHeaders, body: "{" }), factParams)).status).toBe(400);
+    expect((await route(new Request("http://localhost", { method, headers: { origin: "http://localhost", "content-type": "text/plain" }, body: "{}" }), factParams)).status).toBe(415);
+    factory.client.mockResolvedValue(null);
+    expect((await route(new Request("http://localhost", { method, headers: mutationHeaders, body: "{}" }), factParams)).status).toBe(401);
+    expect(sdk[sdkMethod]).not.toHaveBeenCalled();
+  });
+  it("preserves rejected revision and unknown Fact-write outcomes", async () => {
+    sdk.updateFact.mockRejectedValue(new MemoiaError("fact_revision_conflict", 409, false));
+    const makeRequest = () => new Request("http://localhost", { method: "PUT", headers: mutationHeaders, body: JSON.stringify(correction) });
+    expect((await correctFact(makeRequest(), factParams)).status).toBe(409);
+    sdk.updateFact.mockRejectedValue(new MemoiaError("TRANSPORT_ERROR", null, false, "unknown"));
+    const response = await correctFact(makeRequest(), factParams);
+    expect(response.status).toBe(502);
+    expect((await response.json()).message).toBe("OUTCOME_UNKNOWN");
+  });
   it("passes independent bounded detail offsets without mixing them with request options", async () => {
     sdk.getSource.mockResolvedValue({ source_id: "source" });
     const request = new Request("http://localhost?limit=20&message_offset=40&evidence_offset=10");

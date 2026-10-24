@@ -21,4 +21,9 @@ describe("explicit accepted-operation recovery", () => {
     expect(canResumeOperation({ kind: "flush", status: "failed", error })).toBe(true);
     expect(canResumeOperation({ kind: "import", status: "failed", error })).toBe(false);
   });
+  it("allows explicit correction recovery after identical input was replenished", () => {
+    const error = { code: "input_required", retryable: false };
+    expect(canResumeOperation({ kind: "correct", status: "failed", error })).toBe(true);
+    expect(canResumeOperation({ kind: "import", status: "failed", error })).toBe(false);
+  });
 });

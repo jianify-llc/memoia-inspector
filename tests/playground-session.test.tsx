@@ -9,7 +9,7 @@ const runtime = { thread: { getState: () => ({ isRunning: state.running }), canc
   if (!state.running) throw new Error("Empty thread rejects actions");
   state.cancel(); state.running = false;
 }, import: state.reset } };
-vi.mock("@assistant-ui/react-ai-sdk", () => ({ useChatRuntime: (options: Record<string, unknown>) => {
+vi.mock("@assistant-ui/react-data-stream", () => ({ useDataStreamRuntime: (options: Record<string, unknown>) => {
   state.options = options; return runtime;
 } }));
 vi.mock("@assistant-ui/react", () => ({ AssistantRuntimeProvider: ({ children }: { children: React.ReactNode }) => children }));

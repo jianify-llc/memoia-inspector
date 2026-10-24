@@ -650,7 +650,7 @@ export function UserMemory({
                   </CardHeader>
                   <CardContent className="text-sm flex flex-col gap-2">
                     {event.event_data?.summary ? <p className="font-medium">{event.event_data.summary}</p> : null}
-                    {event.event_data?.time ? <p>{t("storyTime")}: {event.event_data.time}</p> : null}
+                    {event.event_data?.event_time ? <p>{t("storyTime")}: {event.event_data.event_time}</p> : null}
                     {event.event_data?.location ? <p>{t("storyLocation")}: {event.event_data.location}</p> : null}
                     {event.event_data?.keywords ? <p className="text-muted-foreground">{t("storyKeywords")}: {event.event_data.keywords}</p> : null}
                     {(event.event_data?.content || event.event_data?.event_tip) && (

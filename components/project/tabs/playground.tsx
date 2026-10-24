@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
+import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { AssistantSidebar } from "@/components/assistant-ui/assistant-sidebar";
@@ -47,7 +47,7 @@ export default function Playground({ project }: { project: Project }) {
   const [playgroundAvailable, setPlaygroundAvailable] = useState<boolean | null>(null);
   const chatApi = `${process.env["NEXT_PUBLIC_BASE_PATH"] || ""}/api/chat`;
 
-  const runtime = useChatRuntime({
+  const runtime = useDataStreamRuntime({
     api: chatApi,
     sendExtraMessageFields: true,
     body: { get reference_tokens() { return [...referenceStore.values()]; } },

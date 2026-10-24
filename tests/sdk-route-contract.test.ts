@@ -27,6 +27,15 @@ it("preserves usage completeness through server SDK validation and the same-orig
   expect((await result.json()).data).toEqual(data);
 });
 
+it("returns an error for missing usage values instead of successful zero statistics", async () => {
+  transport.mockResolvedValue(Response.json({ usages: [{ date: "2026-10-09", total_insert: 0,
+    total_success_insert: 0, total_output_token: 5, usage_complete: false }] }));
+  const result = await usage(new Request("http://localhost?last_days=1"));
+  expect(result.status).toBe(502);
+  expect((await result.json()).message).toBe("INVALID_RESPONSE");
+  expect(transport).toHaveBeenCalledOnce();
+});
+
 it("valid bounded source pages traverse real SDK request and response validation", async () => {
   const data = { source_id: "dialog", legacy: false, created_at: "2026-04-03T00:00:00Z",
     message_ids: [], deleted_message_ids: [], blobs: [], evidence: [],

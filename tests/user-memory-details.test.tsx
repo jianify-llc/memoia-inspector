@@ -7,12 +7,12 @@ import messages from "@/messages/en.json";
 
 const api = vi.hoisted(() => ({
   memories: vi.fn(), users: vi.fn(), provenance: vi.fn(), source: vi.fn(), deleteMessages: vi.fn(),
-  query: vi.fn(), retry: vi.fn(), deleteUser: vi.fn(), push: vi.fn(),
+  updateFact: vi.fn(), deleteFact: vi.fn(), query: vi.fn(), retry: vi.fn(), deleteUser: vi.fn(), push: vi.fn(),
 }));
 vi.mock("next/navigation", () => { const router = { push: api.push }; return { useRouter: () => router }; });
 vi.mock("@/api/models/memobase", () => ({ getProjectUserMemories: api.memories, getProjectUsers: api.users, deleteUserByUid: api.deleteUser }));
 vi.mock("@/api/models/memoia", () => ({ getUserProvenance: api.provenance, getSource: api.source,
-  deleteSourceMessages: api.deleteMessages, getOperation: api.query, retryOperation: api.retry, PROVENANCE_PAGE_SIZE: 20 }));
+  deleteSourceMessages: api.deleteMessages, updateFact: api.updateFact, deleteFact: api.deleteFact, getOperation: api.query, retryOperation: api.retry, PROVENANCE_PAGE_SIZE: 20 }));
 // Keep the real detail owner, provenance, Radix tabs/dialogs and JSON download.
 // Replace only the unrelated profile editor/timeline presentation.
 vi.mock("@/components/user-memory", async () => {
@@ -85,6 +85,172 @@ const downloadText = async () => {
   });
 };
 const counterCells = () => [...document.querySelectorAll("tbody tr:first-child td")].slice(1, 3).map((cell) => cell.textContent);
+
+const correctionFact = { fact_id: "fact-1", blob_id: "blob-1", revision: 3, content: "Original fact", subject: "user", reporter: "user", certainty: "asserted", support_groups: [["hobby"]], fact_time: null, created_at: null, updated_at: null };
+const correctionSource = { source_id: "source-1", blobs: [{ blob_id: "blob-1", message_ids: ["hobby"], created_at: "2026-10-05T00:00:00Z", kind: "import", status: "active" }], evidence: [correctionFact], message_ids: ["hobby"], deleted_message_ids: [], next_message_offset: null, next_blob_offset: null, next_evidence_offset: null };
+const inspectCorrection = async () => {
+  tab(messages.project.users.provenance);
+  fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
+  await screen.findByText("Original fact");
+};
+const submitCorrection = async () => {
+  await inspectCorrection();
+  fireEvent.click(screen.getByRole("button", { name: messages.provenance.editFact }));
+  const editor = screen.getByRole("region", { name: messages.provenance.editFact });
+  fireEvent.change(within(editor).getByLabelText(messages.provenance.factContent), { target: { value: "Retain this proposal" } });
+  fireEvent.change(within(editor).getByLabelText(messages.provenance.correctionReason), { target: { value: "Verified original conversation" } });
+  fireEvent.click(within(editor).getByLabelText(messages.provenance.callerVerified));
+  fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.reviewCorrection }));
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.saveCorrection }));
+  await waitFor(() => expect(api.updateFact).toHaveBeenCalledOnce());
+};
+
+describe("Fact proposal ownership across real tab unmounts", () => {
+  it.each([false, true])("retains unsubmitted edits across tabs after a previous rejection is %s", async (afterRejection) => {
+    api.source.mockResolvedValue(response(correctionSource));
+    api.updateFact.mockResolvedValue({ code: 422, data: null, message: "invalid_fact_evidence" });
+    await openDetails();
+    if (afterRejection) {
+      await submitCorrection();
+      await inspectCorrection();
+      await screen.findByText(messages.provenance.draftRetained);
+    } else {
+      await inspectCorrection();
+      fireEvent.click(screen.getByRole("button", { name: messages.provenance.editFact }));
+    }
+    const editor = screen.getByRole("region", { name: messages.provenance.editFact });
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.factContent), { target: { value: " Unsubmitted proposal " } });
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.correctionReason), { target: { value: " New audit reason " } });
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.subject), { target: { value: "friend" } });
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.reporter), { target: { value: "user's friend" } });
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.certainty), { target: { value: "uncertain" } });
+    fireEvent.click(within(editor).getByLabelText("hobby"));
+    fireEvent.click(within(editor).getByLabelText(messages.provenance.setFactTime));
+    fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.addTimeEvidence }));
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.timeMessage), { target: { value: "hobby" } });
+    fireEvent.change(within(editor).getByLabelText(messages.provenance.timeExpression), { target: { value: "sometime last week" } });
+    fireEvent.click(within(editor).getByLabelText(messages.provenance.callerVerified));
+    tab(messages.project.users.table.memories);
+    expect(screen.queryByText(messages.provenance.title)).toBeNull();
+    await inspectCorrection();
+    const restored = screen.getByRole("region", { name: messages.provenance.editFact });
+    expect((within(restored).getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe(" Unsubmitted proposal ");
+    expect((within(restored).getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe(" New audit reason ");
+    expect((within(restored).getByLabelText(messages.provenance.subject) as HTMLInputElement).value).toBe("friend");
+    expect((within(restored).getByLabelText(messages.provenance.reporter) as HTMLInputElement).value).toBe("user's friend");
+    expect((within(restored).getByLabelText(messages.provenance.certainty) as HTMLSelectElement).value).toBe("uncertain");
+    expect((within(restored).getByLabelText("hobby") as HTMLInputElement).checked).toBe(false);
+    expect((within(restored).getByLabelText(messages.provenance.setFactTime) as HTMLInputElement).checked).toBe(true);
+    expect((within(restored).getByLabelText(messages.provenance.timeMessage) as HTMLSelectElement).value).toBe("hobby");
+    expect((within(restored).getByLabelText(messages.provenance.timeExpression) as HTMLInputElement).value).toBe("sometime last week");
+    expect((within(restored).getByLabelText(messages.provenance.callerVerified) as HTMLInputElement).checked).toBe(false);
+    expect(api.updateFact).toHaveBeenCalledTimes(afterRejection ? 1 : 0);
+  });
+
+  it.each([
+    { code: 422, leaveBeforeResponse: false },
+    { code: 422, leaveBeforeResponse: true },
+    { code: 409, leaveBeforeResponse: false },
+    { code: 409, leaveBeforeResponse: true },
+  ])("retains a $code rejection when leaving before response is $leaveBeforeResponse", async ({ code, leaveBeforeResponse }) => {
+    const pending = deferred<{ code: number; data: null; message: string }>();
+    api.source.mockResolvedValue(response(correctionSource));
+    api.updateFact.mockReturnValueOnce(pending.promise).mockResolvedValue(response({ ...completed, kind: "correct" }));
+    const conflict = { ...accepted, kind: "correct", status: "failed", error: { code: "fact_revision_conflict", retryable: false } };
+    api.query.mockResolvedValue(response(conflict));
+    await openDetails();
+    await submitCorrection();
+    const originalKey = api.updateFact.mock.calls[0][2].idempotency_key;
+    if (leaveBeforeResponse) {
+      tab(messages.project.users.table.memories);
+      expect(screen.queryByRole("region", { name: messages.provenance.editFact })).toBeNull();
+      expect(screen.queryByText(messages.provenance.title)).toBeNull();
+    }
+    await act(async () => { pending.resolve({ code, data: null, message: code === 422 ? "invalid_fact_evidence" : "fact_revision_conflict" }); });
+    if (code === 409) {
+      tab(messages.project.users.provenance);
+      const query = await screen.findByRole("button", { name: messages.provenance.query });
+      fireEvent.click(query);
+      await screen.findByRole("button", { name: messages.provenance.dismissRejectedCorrection });
+      expect(api.query).toHaveBeenCalledWith("user-1", originalKey, undefined);
+      fireEvent.click(screen.getByRole("button", { name: messages.provenance.dismissRejectedCorrection }));
+    }
+    tab(messages.project.users.table.memories);
+    expect(screen.queryByText(messages.provenance.title)).toBeNull();
+    api.source.mockResolvedValue(response({ ...correctionSource, evidence: [{ ...correctionFact, revision: 4, content: "Current server revision" }] }));
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
+    const restored = await screen.findByRole("region", { name: messages.provenance.editFact });
+    expect((within(restored).getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe("Retain this proposal");
+    expect((within(restored).getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe("Verified original conversation");
+    expect((within(restored).getByLabelText(messages.provenance.callerVerified) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(within(restored).getByRole("button", { name: messages.provenance.reviewCorrection }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(api.updateFact).toHaveBeenCalledOnce();
+    fireEvent.click(within(restored).getByLabelText(messages.provenance.callerVerified));
+    fireEvent.click(within(restored).getByRole("button", { name: messages.provenance.reviewCorrection }));
+    expect(within(screen.getByRole("alertdialog")).getByText("Current server revision")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.saveCorrection }));
+    await waitFor(() => expect(api.updateFact).toHaveBeenCalledTimes(2));
+    expect(api.updateFact.mock.calls[1][2]).toMatchObject({ expected_revision: 4, content: "Retain this proposal", reason: "Verified original conversation" });
+    expect(api.updateFact.mock.calls[1][2].idempotency_key).not.toBe(originalKey);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
+    await screen.findByText("Current server revision");
+    expect(screen.queryByRole("region", { name: messages.provenance.editFact })).toBeNull();
+    expect(api.retry).not.toHaveBeenCalled();
+  });
+
+  it("keeps a late rejected proposal with its user while another user's editor is open", async () => {
+    const pending = deferred<{ code: number; data: null; message: string }>();
+    api.users.mockImplementation(async () => response({ users: [user(2), { ...user(2), id: "user-2" }], count: 2 }));
+    api.source.mockResolvedValue(response(correctionSource));
+    api.updateFact.mockReturnValueOnce(pending.promise);
+    mount();
+    const openUser = async (uid: string) => {
+      const row = (await screen.findByText(uid)).closest("tr")!;
+      fireEvent.click(within(row).getByRole("button", { name: messages.project.users.table.memories }));
+      await screen.findByTestId("memory-snapshot");
+    };
+    await openUser("user-1");
+    await submitCorrection();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await openUser("user-2");
+    await inspectCorrection();
+    expect(screen.queryByRole("region", { name: messages.provenance.editFact })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: messages.provenance.editFact }));
+    await act(async () => { pending.resolve({ code: 422, data: null, message: "invalid_fact_evidence" }); });
+    expect((screen.getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe("Original fact");
+    expect((screen.getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await openUser("user-1");
+    await inspectCorrection();
+    expect((screen.getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe("Retain this proposal");
+    expect((screen.getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe("Verified original conversation");
+    expect(api.updateFact).toHaveBeenCalledOnce();
+    expect(api.updateFact.mock.calls[0][0]).toBe("user-1");
+  });
+
+  it("releases a rejected draft when cancelling or choosing a different Fact", async () => {
+    const otherFact = { ...correctionFact, fact_id: "fact-2", content: "Another fact" };
+    api.source.mockResolvedValue(response(correctionSource));
+    api.updateFact.mockResolvedValue({ code: 422, data: null, message: "invalid_fact_evidence" });
+    await openDetails();
+    await submitCorrection();
+    api.source.mockResolvedValue(response({ ...correctionSource, evidence: [correctionFact, otherFact] }));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
+    await screen.findByText(messages.provenance.draftRetained);
+    fireEvent.click(within(screen.getByText("Another fact").parentElement!).getByRole("button", { name: messages.provenance.editFact }));
+    expect((screen.getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe("Another fact");
+    expect((screen.getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe("");
+    fireEvent.click(within(screen.getByRole("region", { name: messages.provenance.editFact })).getByRole("button", { name: messages.provenance.cancel }));
+    tab(messages.project.users.table.memories);
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
+    await screen.findByText("Another fact");
+    expect(screen.queryByRole("region", { name: messages.provenance.editFact })).toBeNull();
+    expect(api.updateFact).toHaveBeenCalledOnce();
+  });
+});
 
 describe("source mutation → all user memory views", () => {
   it("shows fact attribution and uncertainty without requiring legacy profile categories", async () => {

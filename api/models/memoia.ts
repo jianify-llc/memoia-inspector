@@ -1,4 +1,4 @@
-import type { History, MaintenanceStatus, Operation, Operations, Profiles, Source, Sources, SourceQuery } from "@jianify/memoia";
+import type { DeleteFact, History, MaintenanceStatus, Operation, Operations, Profiles, Source, Sources, SourceQuery, UpdateFact } from "@jianify/memoia";
 import service, { type Res } from "@/api/http";
 
 export type UserProvenanceData = {
@@ -19,3 +19,7 @@ export const deleteSourceMessages = (uid: string, sourceId: string, messageIds: 
 export const getOperation = (uid: string, key: string | null, operationId?: string): Promise<Res<Operation>> =>
   service.get(`${userPath(uid)}/operations`, key ? { key } : { operation_id: operationId });
 export const retryOperation = (uid: string, operationId: string): Promise<Res<Operation>> => service.post(`${userPath(uid)}/operations`, { operation_id: operationId });
+export const updateFact = (uid: string, factId: string, input: UpdateFact): Promise<Res<Operation>> =>
+  service.put(`${userPath(uid)}/facts/${encodeURIComponent(factId)}`, input);
+export const deleteFact = (uid: string, factId: string, input: DeleteFact): Promise<Res<Operation>> =>
+  service.post(`${userPath(uid)}/facts/${encodeURIComponent(factId)}/delete`, input);

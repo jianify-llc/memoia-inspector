@@ -1,6 +1,22 @@
-import type { Operation } from "@jianify/memoia";
+import type { Evidence, Operation, UpdateFact } from "@jianify/memoia";
 
-export type ProvenanceMutation = { pendingKey: string | null; operation: Operation | null; busy: boolean };
+export type FactCorrectionValues = Omit<UpdateFact, "idempotency_key" | "expected_revision" | "certainty"> & {
+  certainty: UpdateFact["certainty"] | "";
+};
+
+export type FactCorrectionDraft = {
+  fact: Evidence;
+  mode: "edit" | "delete";
+  draft?: FactCorrectionValues;
+  submitted?: boolean;
+};
+
+export type ProvenanceMutation = {
+  pendingKey: string | null;
+  operation: Operation | null;
+  busy: boolean;
+  correction?: FactCorrectionDraft | null;
+};
 
 export function hasUnconfirmedMutation(mutation: { pendingKey: string | null; operation: Pick<Operation, "status"> | null }) {
   if (mutation.pendingKey) return true;
@@ -12,5 +28,6 @@ export function canResumeOperation(operation: Pick<Operation, "status" | "error"
   if (operation.status === "processing") return true;
   if (operation.status !== "failed") return false;
   if (operation.kind === "flush") return true;
+  if (operation.kind === "correct" && operation.error?.code === "input_required") return true;
   return Boolean(operation.error?.retryable || operation.error?.code === "reconciliation_too_large" || operation.error?.code === "related_facts_too_large");
 }
