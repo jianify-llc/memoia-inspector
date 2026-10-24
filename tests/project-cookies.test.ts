@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cookies } from "next/headers";
 import { POST } from "@/app/api/memobase/user/route";
-import { clearLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
+import { memoiaClient, clearLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
@@ -19,7 +19,7 @@ beforeEach(() => {
   vi.mocked(cookies).mockResolvedValue(cookieStore as never);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("project and playground cookie ownership", () => {
   it("clears the old user when switching projects", async () => {
@@ -126,4 +126,23 @@ it("prepare acknowledges the cookie before initialize can issue a remote write",
   transport.mockResolvedValueOnce(missing()).mockResolvedValueOnce(Response.json({ id: uid }, { status: 201 }));
   expect((await POST(request("initialize"))).status).toBe(200);
   expect(transport.mock.calls.map(([, options]) => options.method)).toEqual(["GET", "POST"]);
+});
+
+
+it("keeps the SDK write budget for a normal operation lasting more than ten seconds", async () => {
+  vi.useFakeTimers();
+  values.set("MEMOBASE_INSPECTOR_LOCALE", "https://fixture.invalid|fixture-only");
+  const transport = vi.fn((_url: unknown, options: RequestInit) => new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(Response.json({ id: uid }, { status: 201 })), 15_000);
+    options.signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  }));
+  vi.stubGlobal("fetch", transport);
+  const client = await memoiaClient();
+  const result = expect(client!.createUser({ id: uid })).resolves.toMatchObject({ id: uid });
+  await vi.advanceTimersByTimeAsync(15_000);
+  await result;
+  expect(transport).toHaveBeenCalledTimes(1);
 });

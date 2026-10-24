@@ -17,7 +17,7 @@ const cookieOptions = {
 export async function memoiaClient() {
   const [baseUrl, apiKey] = await getLocale();
   if (!baseUrl || !apiKey) return null;
-  return new MemoiaClient({ baseUrl, apiKey, maxAttempts: 2, readTimeoutMs: 10_000, writeTimeoutMs: 10_000 });
+  return new MemoiaClient({ baseUrl, apiKey, maxAttempts: 2, readTimeoutMs: 10_000 });
 }
 
 export async function getLocale() {
