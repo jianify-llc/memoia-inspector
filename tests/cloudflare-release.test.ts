@@ -39,7 +39,7 @@ function fakeRunner(heads: string[], records: object[] = [{ type: "version-uploa
 
 describe("Cloudflare Test release", () => {
   it("uses the actual manual workflow and delegates publication to the guarded helper", () => {
-    const workflow = parse(readFileSync(".github/workflows/deploy-cloudflare-test.yml", "utf8"));
+    const workflow = parse(readFileSync(".github/workflows/deploy-test.yml", "utf8"));
     expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
     const steps = workflow.jobs.deploy.steps;
     expect(steps[0].with["persist-credentials"]).toBe(false);

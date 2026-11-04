@@ -24,7 +24,7 @@ function workflow(name: string): Workflow {
 
 describe('Test and Online release boundaries', () => {
   const verifyWorkflow = workflow('verify.yml');
-  const testWorkflow = workflow('deploy-test.yml');
+  const testWorkflow = workflow('deploy-docker-test.yml');
   const onlineWorkflow = workflow('deploy-online.yml');
 
   it('bounds every actual runner and rejects wrong manual refs before registry writes', () => {
@@ -70,7 +70,7 @@ describe('Test and Online release boundaries', () => {
     expect(build.with?.platforms).toBe('linux/amd64');
     const checkout = verifyWorkflow.jobs.verify.steps![0];
     expect(checkout.with?.ref).toBe('${{ github.sha }}');
-    for (const file of ['verify.yml', 'deploy-test.yml', 'deploy-online.yml']) {
+    for (const file of ['verify.yml', 'deploy-docker-test.yml', 'deploy-online.yml']) {
       const source = readFileSync(resolve(__dirname, '../.github/workflows', file), 'utf8');
       expect(source).not.toMatch(/verify_local|pnpm (?:test|lint|typecheck|audit|check:sdk|build)|setup-node|pnpm\/action-setup/);
     }
@@ -86,7 +86,7 @@ describe('Test and Online release boundaries', () => {
     expect(testWorkflow.jobs['publish-test'].needs).toBeUndefined();
     expect(testWorkflow.jobs['deploy-test'].environment).toMatchObject({ name: 'test' });
     expect(testWorkflow.jobs['deploy-test'].needs).toContain('publish-test');
-    expect(readFileSync(resolve(__dirname, '../.github/workflows/deploy-test.yml'), 'utf8')).toContain('INSPECTOR_STAGE=test bash');
+    expect(readFileSync(resolve(__dirname, '../.github/workflows/deploy-docker-test.yml'), 'utf8')).toContain('INSPECTOR_STAGE=test bash');
   });
 
   it('builds only a release-HEAD tag and deploys its validated digest after approval', () => {
@@ -118,7 +118,7 @@ describe('Test and Online release boundaries', () => {
     expect(native.with?.outputs).toContain('push-by-digest=true');
     expect(native.with?.['cache-from']).toBe('type=gha,scope=online-${{ matrix.arch }}');
     expect(native.with?.['cache-to']).toBe('type=gha,scope=online-${{ matrix.arch }},mode=max');
-    for (const name of ['deploy-test.yml', 'deploy-online.yml', 'verify.yml']) {
+    for (const name of ['deploy-docker-test.yml', 'deploy-online.yml', 'verify.yml']) {
       const source = readFileSync(resolve(__dirname, '../.github/workflows', name), 'utf8');
       expect(source).not.toContain('setup-qemu');
       expect(source).not.toContain('15.5.26');
