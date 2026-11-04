@@ -1,0 +1,35 @@
+name: Deploy Cloudflare Test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: memoia-inspector-cloudflare-test
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: ${{ vars.ENABLE_CLOUDFLARE_TEST_DEPLOY == 'true' && github.ref == 'refs/heads/test' }}
+    environment: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TEST_PUBLIC_ORIGIN: ${{ vars.CF_TEST_PUBLIC_ORIGIN }}
+      CF_TEST_ZONE_ID: ${{ vars.CF_TEST_ZONE_ID }}
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require current Test head
+        run: test "$(git ls-remote origin refs/heads/test | cut -f1)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@10.12.4 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec opennextjs-cloudflare build --env test
+      - name: Preflight, upload and deploy frozen candidate
+        run: node --experimental-strip-types deploy/cloudflare-release.ts
