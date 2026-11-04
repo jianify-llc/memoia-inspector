@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createAssistantStreamResponse, type AssistantStreamChunk } from "assistant-stream";
-import type { ResponseInput, ResponseInputItem, ResponseInputText, ResponseInputMessageContentList, ResponseStreamEvent, FunctionTool } from "openai/resources/responses/responses";
+import type { ResponseInput, ResponseInputItem, ResponseInputText, ResponseInputMessageContentList, ResponseStreamEvent, FunctionTool, Response as ModelResponse } from "openai/resources/responses/responses";
 import type { Stream } from "openai/core/streaming";
 import { messageFingerprint, type TurnReference } from "./playground-reference";
 
@@ -31,8 +31,8 @@ const developer = (tag: string, value: unknown, cache = false): ResponseInputIte
   if (cache) content.prompt_cache_breakpoint = { mode: "explicit" };
   return { role: "developer", content: [content] };
 };
-export const playgroundCacheKey = (projectId: string, userId: string) =>
-  createHash("sha256").update(JSON.stringify([projectId, userId])).digest("hex");
+export const playgroundCacheKey = (projectId: string, userId: string, sessionId: string) =>
+  createHash("sha256").update(JSON.stringify([projectId, userId, sessionId])).digest("hex");
 
 // Only the wire parts handled below are accepted; model generation stays in Responses.
 const textPart = z.object({ type: z.literal("text"), text: z.string() });
@@ -119,7 +119,7 @@ export function playgroundInput(history: ReturnType<typeof playgroundHistory>, r
   const first = references.get(history.users[0].id);
   const boundary = cache ? { prompt_cache_breakpoint: { mode: "explicit" as const } } : {};
   const input: ResponseInput = [{ role: "developer", content: [
-    { type: "input_text", text: REFERENCE_FORMAT, ...boundary },
+    { type: "input_text", text: PLAYGROUND_INSTRUCTIONS + "\n\n" + REFERENCE_FORMAT, ...boundary },
     { type: "input_text", text: xml("profile_context", { profiles: first?.profiles ?? "" }), ...boundary },
   ] }];
   let previous = 0;
@@ -136,7 +136,7 @@ export function playgroundInput(history: ReturnType<typeof playgroundHistory>, r
 
 /** Native Responses events become the unchanged Assistant UI data protocol, never another model call. */
 export function playgroundStream(startStream: (signal: AbortSignal) => Promise<Stream<ResponseStreamEvent>>, headers: HeadersInit,
-  reference: { message_id: string; memoia_reference: string }) {
+  reference: { message_id: string; memoia_reference: string }, onCompleted?: (response: ModelResponse) => Record<string, string>) {
   const cancellation = new AbortController();
   let stream: Stream<ResponseStreamEvent> | undefined;
   const response = createAssistantStreamResponse(async (writer) => {
@@ -159,6 +159,7 @@ export function playgroundStream(startStream: (signal: AbortSignal) => Promise<S
         if (event.type === "response.completed") {
           if (event.response.status !== "completed") throw new Error("Incomplete response");
           completed = true;
+          if (onCompleted) writer.enqueue({ type: "annotations", path: [], annotations: [onCompleted(event.response)] });
           const usage = event.response.usage;
           const details = usage?.input_tokens_details;
           const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;

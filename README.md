@@ -1,8 +1,12 @@
 # Memoia Inspector
 
-Memoia Inspector is a fork of [Memobase Inspector](https://github.com/memodb-io/memobase-inspector). It keeps the upstream project-switching UI, user/profile/event management, and chat Playground. All management pages, provenance controls and Playground use one `@jianify/memoia` SDK and the server’s unversioned `/api` contract.
+Memoia Inspector is the TypeScript administration app for Memoia. It provides project switching, Fact/Profile/Event management, source evidence, operation recovery and an optional chat Playground. All management pages and Playground use one `@jianify/memoia` SDK and the server’s unversioned `/api` contract.
 
 The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a separate Apache-2.0 project. Deployment of this admin UI should be protected by an access layer: the project token entered in the UI is still required to access a Memoia project, but is not a substitute for authenticating the human administrator.
+
+One Next.js application supports both Docker (Node standalone) and Cloudflare Workers (OpenNext with static assets). Neither deployment needs its own database, Redis or task queue. The original project was [Memobase Inspector](https://github.com/memodb-io/memobase-inspector); its MIT copyright notice remains in LICENSE. GitHub fork-network membership is separate repository metadata, not changed by these source changes.
+
+Historical internal route and cookie names remain compatible with existing browser sessions; they do not connect to the upstream hosted service.
 
 ## Source management
 
@@ -37,7 +41,7 @@ The additional **Projects & permissions** tab reads current projects and scoped 
 
 Leaving a disabled/empty Playground checks the SDK thread's `isRunning` state before cancellation. The empty placeholder rejects actions; unmounting it must not crash other management tabs. A running reply is still cancelled when leaving or replacing the test user.
 
-The [company Prompt/cache contract](https://github.com/jianify-llc/Jianify-LLC/blob/main/docs/engineering/llm-prompt-cache.md) owns assembly rules. Playground uses official OpenAI Responses via SDK 7.32.0; the official `@assistant-ui/react-data-stream` runtime and `assistant-stream` encoder preserve the existing data protocol; no Vercel AI SDK is installed. This endpoint validates only the message parts it supports with Zod 4. Fixed behavior goes in top-level instructions. The first Developer has two `input_text` blocks: trusted fixed XML-format definitions at breakpoint A, then escaped initial context at breakpoint B. Dynamic XML values are reference data; the fixed explanation is trusted. Later turn references and original User/Assistant/tool history remain append-only. Continuation uses implicit mode and a server-derived project/user key, without external tracing or material logging.
+The [company Prompt/cache contract](https://github.com/jianify-llc/Jianify-LLC/blob/main/docs/engineering/llm-prompt-cache.md) owns assembly rules. Playground uses official OpenAI Responses via SDK 7.32.0; the official `@assistant-ui/react-data-stream` runtime and `assistant-stream` encoder preserve the existing data protocol; no Vercel AI SDK is installed. This endpoint validates only the message parts it supports with Zod 4. Fixed behavior is included in the first Developer block; top-level instructions is never sent. The first Developer has two `input_text` blocks: task rules plus trusted XML-format definitions at breakpoint A, then escaped initial context at breakpoint B. Dynamic XML values are reference data; the fixed explanation is trusted. Later turn references and original User/Assistant/tool history remain append-only. Continuation uses store:true and previous_response_id, with implicit caching keyed by authenticated project/user and page session. Only chain creation/rebuild sends initial Developer and full history. The browser owns a signed receipt (no server session table); the route rechecks live access and scope, compares model/rules/tools/initial data and acknowledged history, and sends only the new suffix when unchanged. Completed receipts are accepted only for the current page session and request; cancellation and late responses cannot restore an old pointer. Provider reasoning stays on the native chain; assistant recording timestamps assigned after streaming are not part of its acknowledged prefix. No external tracing or material logging.
 
 The current component holds signed reference tokens in memory only, not browser storage. Each token binds the authenticated project/user, original User ID/content fingerprint, recording time, and that turn's selected profiles/memories. The server verifies the signature with the existing project credential and rechecks live project/user access before replay; signatures do not grant access. References are replayed at the original turn, not replaced by latest retrieval. Delivery precedes model text, allowing retry/cancel to reuse the first prefix; duplicates do not append another copy. Project/credential changes remount the runtime, and explicit user replacement clears history/references. Refresh starts a new session; history without its original references is rejected rather than guessed. Tokens are signed, not encrypted; contents remain the administrator's already authorized data.
 
@@ -60,7 +64,7 @@ pnpm dev
 
 The container image is built for the domain root path and same-origin API calls. An alternate Next.js `basePath` is a **build-time** choice and needs a different image; changing a server `.env` does not alter an already-built image.
 
-The optional Playground calls a model independently of Memoia. Admin features do not require its `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `OPENAI_MODEL`; without a configured model, the Playground remains visible but its chat and test-user operations are not started. If enabled before first deployment, store its settings in the Inspector repository's GitHub `test` Environment; Actions installs a protected runtime copy on the host. Later changes require separate maintenance. Set the Memoia project origin and Bearer token through the Inspector settings page. Existing upstream Cloudflare Worker commands are retained for compatibility, but the deployment below uses Docker; do not run the upstream `wrangler.jsonc` against its original route.
+The optional Playground calls a model independently of Memoia. Admin features do not require its `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `OPENAI_MODEL`; without a configured model, the Playground remains visible but its chat and test-user operations are not started. Enable it through the selected runtime's protected configuration, as described in the deployment guide; this does not reuse Memoia's provider credentials. Set the Memoia project origin and Bearer token through Inspector settings.
 
 ## Tests and deployment
 
@@ -70,8 +74,9 @@ pnpm check:sdk
 pnpm typecheck
 pnpm lint
 pnpm build
+pnpm build:cloudflare
 pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
-docker run --rm --network none -v "$PWD:/work:ro" -w /work python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e bash tests/deploy-inspector.test.sh
+docker run --rm --network none -v "$PWD:/work:ro" -w /work node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c bash tests/deploy-inspector.test.sh
 ```
 
-The test-server setup, CI modes and recovery are in [deploy/README.md](deploy/README.md). Use `pnpm ci:local --mode quick` during development. Install `pnpm hooks:install`, then `pnpm push:test` runs reliable-base full checks before Test synchronization; full without a base includes all checks, audit, Docker build and deployment fixtures. Ordinary pushes do not start Actions. Manual Test publishes AMD64; Online tags build on two native architectures and deploy the validated manifest after approval. Actions only builds and delivers images; lint, types, SDK, business tests, audit and deployment-tool tests run locally. Production builds belong to Docker, not a duplicate host build; the VPS never builds source.
+The two deployment paths, CI modes and recovery are in [deploy/README.md](deploy/README.md). Use `pnpm ci:local --mode quick` during development. Install `pnpm hooks:install`, then `pnpm push:test` runs reliable-base full checks before Test synchronization. Full checks include the affected Docker and Cloudflare builds, SDK, business and tooling tests; they do not deploy. Ordinary pushes do not start Actions. Choose the deployment workflow explicitly: Docker publishes immutable images, while Cloudflare uploads and activates an exact Worker version. Running one does not publish the other.

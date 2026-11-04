@@ -40,6 +40,14 @@ export default function Playground({ project }: { project: Project }) {
   const lastUserRecordedAt = useRef<string>("");
   const references = useRef(new Map<string, string>());
   const mounted = useRef(true);
+  const chain = useRef({ sessionId: crypto.randomUUID(), requestId: "", receipt: null as string | null,
+    project: project.endpoint_url, credential: project.endpoint_token });
+  if (chain.current.project !== project.endpoint_url || chain.current.credential !== project.endpoint_token) {
+    references.current = new Map();
+    chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null,
+      project: project.endpoint_url, credential: project.endpoint_token };
+  }
+  const chainSession = chain.current;
   const referenceStore = references.current;
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
@@ -50,12 +58,19 @@ export default function Playground({ project }: { project: Project }) {
   const runtime = useDataStreamRuntime({
     api: chatApi,
     sendExtraMessageFields: true,
-    body: { get reference_tokens() { return [...referenceStore.values()]; } },
+    body: {
+      get reference_tokens() { return [...referenceStore.values()]; },
+      get session_id() { return chainSession.sessionId; },
+      get request_id() { chainSession.requestId = crypto.randomUUID(); return chainSession.requestId; },
+      get chain_receipt() { return chainSession.receipt; },
+    },
+    onCancel: () => { chainSession.requestId = ""; },
     onResponse: async (response) => {
       if (response.status === 409 && mounted.current && references.current === referenceStore) {
         toast.error(t("retryPreviousTurn"));
       }
-      if (response.status !== 200 || !mounted.current || references.current !== referenceStore) {
+      if (response.status !== 200 || !mounted.current || references.current !== referenceStore ||
+        response.headers.get("x-playground-request") !== chainSession.requestId) {
         return;
       }
 
@@ -65,10 +80,19 @@ export default function Playground({ project }: { project: Project }) {
       await retainReference(response, referenceStore);
     },
     onFinish: async (message) => {
-      if (!mounted.current || references.current !== referenceStore || !message.content || message.content.length === 0) {
-        return;
-      }
-      if (message.role !== "assistant" || message.status.type !== "complete" || message.status.reason !== "stop") {
+      if (!mounted.current || chain.current !== chainSession || references.current !== referenceStore) return;
+      if (message.role !== "assistant") return;
+      const status = message.status;
+      const completedAnswer = status?.type === "complete" && status.reason === "stop";
+      const toolTurn = status?.type === "requires-action" && status.reason === "tool-calls";
+      if (!completedAnswer && !toolTurn) return;
+      const receipt = message.metadata?.unstable_annotations?.findLast(value => value && typeof value === "object" &&
+        "chain_receipt" in value && "request_id" in value && value.request_id === chainSession.requestId &&
+        "session_id" in value && value.session_id === chainSession.sessionId);
+      if (!receipt || typeof receipt !== "object" || !("chain_receipt" in receipt) || typeof receipt.chain_receipt !== "string") return;
+      // Only the current completed request may advance the page chain, including a tool-only step.
+      chainSession.receipt = receipt.chain_receipt;
+      if (!completedAnswer || message.content.length === 0) {
         return;
       }
 
@@ -227,6 +251,8 @@ export default function Playground({ project }: { project: Project }) {
                 setEvents([]);
                 setMaintenance(null);
                 references.current = new Map();
+                chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null,
+                  project: project.endpoint_url, credential: project.endpoint_token };
                 runtime.thread.import({ messages: [] });
                 initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
                 const initialized = await initializePlaygroundUser(initializationIdentity.current.id);

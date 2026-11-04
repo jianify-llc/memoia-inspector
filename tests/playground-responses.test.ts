@@ -18,11 +18,11 @@ import { POST } from "@/app/api/chat/route";
 type Wire = Record<string, unknown> & { input: Array<Record<string, unknown>> };
 const wires: Wire[] = [];
 let events: unknown[];
-const send = async (messages: unknown[], tools = {}, reference_tokens: string[] = []) => {
+const send = async (messages: unknown[], tools = {}, reference_tokens: string[] = [], chain_receipt?: string) => {
   const response = await POST(new Request("http://localhost/api/chat", { method: "POST",
     headers: { origin: "http://localhost", "content-type": "application/json" },
     body: JSON.stringify({ messages: messages.map((message, index) => ({ ...(message as object), unstable_id: `message-${index}` })),
-      tools, reference_tokens, project_id: "forged-project", user_id: "forged-user" }) }));
+      tools, reference_tokens, chain_receipt, session_id: "11111111-1111-4111-8111-111111111111", request_id: "22222222-2222-4222-8222-222222222222", project_id: "forged-project", user_id: "forged-user" }) }));
   return { response, text: await response.text() };
 };
 
@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.stubEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
   vi.stubEnv("OPENAI_MODEL", "gpt-6-luna");
   events = [{ type: "response.output_text.delta", delta: "hello" },
-    { type: "response.completed", response: { status: "completed", model: "gpt-6-luna", output: [],
+    { type: "response.completed", response: { id: "resp-test", status: "completed", model: "gpt-6-luna", output: [{ type: "message", id: "msg-test", role: "assistant", status: "completed", content: [{ type: "output_text", text: "hello", annotations: [] }] }],
       usage: { input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } } } }];
   vi.stubGlobal("fetch", async (url: string | URL | Request, init: RequestInit) => {
     expect(String(url)).toBe(new URL((process.env.OPENAI_BASE_URL || "") + "/responses").toString());
@@ -62,9 +62,10 @@ describe("Playground final Responses HTTP contract", () => {
     expect(decoded.status).toEqual({ type: "complete", reason: "stop" });
     expect(decoded.content).toContainEqual(expect.objectContaining({ type: "text", text: "hello" }));
     const wire = wires[0];
-    expect(wire.instructions).toContain("helpful assistant");
-    expect(wire.instructions).not.toContain("Input format");
-    expect(wire.instructions).not.toContain(state.context);
+    expect(wire.instructions).toBeUndefined();
+    expect(JSON.stringify(wire.input[0])).toContain("helpful assistant");
+    expect(JSON.stringify(wire.input[0])).toContain("Input format");
+    expect(wire.store).toBe(true);
     expect(wire.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
     expect(String(wire.prompt_cache_key)).toHaveLength(64);
     expect(wire.input[0].role).toBe("developer");
@@ -76,7 +77,7 @@ describe("Playground final Responses HTTP contract", () => {
     expect(wire.input.filter(item => item.role === "user").map(item => item.content)).toEqual([
       [{ type: "input_text", text: "<hello> & unchanged" }], [{ type: "input_text", text: "New question" }],
     ]);
-    expect(wire.input.find(item => item.role === "assistant")?.content).toEqual([{ type: "input_text", text: "Previous answer" }]);
+    expect(wire.input.find(item => item.role === "assistant")?.content).toEqual("Previous answer");
     expect(response.headers.get("x-last-user-message")).toBe("New%20question");
   });
 
@@ -193,7 +194,7 @@ describe("Playground final Responses HTTP contract", () => {
     });
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST",
       headers: { origin: "http://localhost", "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "hello", unstable_id: "m1" }] }) }));
+      body: JSON.stringify({ session_id: "11111111-1111-4111-8111-111111111111", request_id: "22222222-2222-4222-8222-222222222222", messages: [{ role: "user", content: "hello", unstable_id: "m1" }] }) }));
     expect(response.status).toBe(200);
     await vi.waitFor(() => expect(providerSignal).not.toBeNull());
     await response.body!.cancel();
@@ -244,7 +245,7 @@ describe("Playground final Responses HTTP contract", () => {
     }));
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST",
       headers: { origin: "http://localhost", "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "hello", unstable_id: "m1" }] }) }));
+      body: JSON.stringify({ session_id: "11111111-1111-4111-8111-111111111111", request_id: "22222222-2222-4222-8222-222222222222", messages: [{ role: "user", content: "hello", unstable_id: "m1" }] }) }));
     const reader = response.body!.getReader();
     const first = await reader.read();
     expect(new TextDecoder().decode(first.value)).toMatch(/^8:/);
@@ -254,4 +255,36 @@ describe("Playground final Responses HTTP contract", () => {
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(errors).not.toHaveBeenCalled();
   });
+});
+
+const chainToken = (text: string) => text.split("\n").filter(line => line.startsWith("8:")).flatMap(line => JSON.parse(line.slice(2))).find(value => value.chain_receipt)?.chain_receipt;
+it("continues with only new input, and rebuilds after model or acknowledged history changes", async () => {
+ const first = await send([{ role: "user", content: "first" }]);
+ const receipt = chainToken(first.text); expect(receipt).toBeTypeOf("string");
+ const history = [{ role: "user", content: "first" }, { role: "assistant", content: "hello", createdAt: "2026-10-14T10:00:00Z" }, { role: "user", content: "next" }];
+ const next = await send(history, {}, [token(first.text)], receipt);
+ expect(wires[1].previous_response_id).toBe("resp-test");
+ expect(wires[1].input.some(item => item.role === "assistant")).toBe(false);
+ expect(JSON.stringify(wires[1].input)).not.toContain("helpful assistant");
+ expect(JSON.stringify(wires[1].input)).not.toContain('"first"');
+ expect(wires[1].prompt_cache_key).toBe(wires[0].prompt_cache_key);
+ vi.stubEnv("OPENAI_MODEL", "gpt-6-sol");
+ await send(history, {}, [token(first.text), token(next.text)], receipt);
+ expect(wires[2].previous_response_id).toBeUndefined();
+ expect(JSON.stringify(wires[2].input)).toContain("helpful assistant");
+ vi.stubEnv("OPENAI_MODEL", "gpt-6-luna");
+ await send([history[0], { role: "assistant", content: "edited reply" }, history[2]], {}, [token(first.text), token(next.text)], receipt);
+ expect(wires[3].previous_response_id).toBeUndefined();
+ const count = wires.length;
+ expect((await send(history, {}, [token(first.text), token(next.text)], receipt + "bad")).response.status).toBe(400);
+ expect(wires).toHaveLength(count);
+});
+it("continues a native tool call using only its matching result", async () => {
+ const call = { type: "function_call", id: "fc1", call_id: "call-1", name: "lookup", arguments: '{"q":"hello"}', status: "completed" };
+ events = [{ type: "response.output_item.done", item: call }, { type: "response.completed", response: { id: "resp-tools", status: "completed", output: [call] } }];
+ const tools = { lookup: { parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } } };
+ const first = await send([{ role: "user", content: "lookup" }], tools);
+ await send([{ role: "user", content: "lookup" }, { role: "assistant", content: [{ type: "tool-call", toolCallId: "call-1", toolName: "lookup", args: { q: "hello" } }] }, { role: "tool", content: [{ type: "tool-result", toolCallId: "call-1", toolName: "lookup", result: { value: "found" } }] }], tools, [token(first.text)], chainToken(first.text));
+ expect(wires[1].previous_response_id).toBe("resp-tools");
+ expect(wires[1].input).toEqual([{ type: "function_call_output", call_id: "call-1", output: '{"value":"found"}' }]);
 });

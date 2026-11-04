@@ -37,7 +37,7 @@ export default function Config({
 
   const [loading, setLoading] = useState(false);
   const [defaultConfigYaml, setDefaultConfigYaml] = useState(
-    project?.config_yaml || "# Memobase Project Config"
+    project?.config_yaml || "# Memoia project configuration"
   );
   const [yamlError, setYamlError] = useState<string | null>(null);
 
@@ -77,7 +77,7 @@ export default function Config({
             <Label>
               {t("advanced.config")}
               <Link
-                href="https://docs.memobase.io/references/full"
+                href="https://github.com/jianify-llc/memoia/blob/main/docs/api.md"
                 target="_blank"
               >
                 <Badge
@@ -85,18 +85,6 @@ export default function Config({
                   className="bg-blue-500 text-white dark:bg-blue-600"
                 >
                   {t("advanced.docs")}
-                  <ArrowUpRight />
-                </Badge>
-              </Link>
-              <Link
-                href="https://app.memobase.io/playground/config-tool"
-                target="_blank"
-              >
-                <Badge
-                  variant="secondary"
-                  className="bg-blue-500 text-white dark:bg-blue-600"
-                >
-                  {t("advanced.tool")}
                   <ArrowUpRight />
                 </Badge>
               </Link>

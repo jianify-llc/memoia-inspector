@@ -96,7 +96,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
                 profilesFold
                 onRefresh={async () => { await Promise.all([refresh(), onResolved(userId)]); }}
                 canDownload={!loading && !error && Boolean(profiles.length || events.length)}
-                downloadFileName={`memobase-${userId}.json`}
+                downloadFileName={`memoia-${userId}.json`}
               />
             </>
           )}

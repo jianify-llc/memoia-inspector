@@ -94,6 +94,11 @@ export INSPECTOR_STAGE=test
 [[ "$(stat -c '%u:%g:%a' "$fixture/service/.env")" == 0:0:600 ]]
 grep -Fxq 'OPENAI_API_KEY=' "$fixture/service/.env"
 expect_failure deploy install-runtime-env <<< 'OPENAI_API_KEY=test'
+printf 'OPENAI_API_KEY=test\nOPENAI_API_KEY=duplicate\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=model\n' | expect_failure deploy install-runtime-env
+printf 'OPENAI_API_KEY=te\000st\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=model\n' | expect_failure deploy install-runtime-env
+printf 'OPENAI_API_KEY=test\377\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=model\n' | expect_failure deploy install-runtime-env
+# shellcheck disable=SC2016 # A literal dollar sign must be rejected, not expanded.
+printf 'OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://example.test/v1\nOPENAI_MODEL=$OTHER\n' | expect_failure deploy install-runtime-env
 
 export MOCK_FAIL_IMAGE="$B_IMAGE"
 expect_failure deploy apply "${B_IMAGE/jianify-llc\//unrelated/}" "$B_SHA" 100

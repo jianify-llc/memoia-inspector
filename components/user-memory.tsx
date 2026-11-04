@@ -188,7 +188,7 @@ export function UserMemory({
             {canDownload && (
               <JsonDownload
                 data={{ profiles, events }}
-                fileName={downloadFileName || "memobase.json"}
+                fileName={downloadFileName || "memoia.json"}
                 trigger={
                   <button
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full"

@@ -193,7 +193,7 @@
     "completed": "Up to date",
     "failed": "Failed",
     "pendingBlobs": "Unbatched Blobs: {count}",
-    "batch": "Blobs {count} · Attempts {attempts}/4",
+    "batch": "Blobs {count} · Execution slices {slices}",
     "stale": "Facts are already committed; older profile/event text may remain until maintenance succeeds. A maintenance failure does not require importing messages again.",
     "recover": "Resume original flush",
     "automaticRetry": "Eligible for automatic recovery within the attempt budget",
@@ -233,7 +233,7 @@
     "new_user": "Generate New User"
   },
   "assistant": {
-    "welcomeMessage": "Welcome to Memobase, How can I help you today?",
+    "welcomeMessage": "Welcome to Memoia. How can I help you today?",
     "scrollToBottom": "Scroll to bottom",
     "writeMessage": "Write a message...",
     "send": "Send",
@@ -255,7 +255,7 @@
   },
   "settings": {
     "title": "Settings",
-    "desc": "Please enter the URL and key of Memobase endpoint",
+    "desc": "Enter your Memoia endpoint URL and project key",
     "placeholder": "Type your message here.",
     "issue": "Issue",
     "idea": "Idea",

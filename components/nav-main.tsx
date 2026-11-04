@@ -11,10 +11,7 @@ import Link from "next/link";
 import {
   BookText,
   ArrowUpRight,
-  Play,
   Github,
-  PenTool,
-  LayoutDashboard,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -26,28 +23,13 @@ export function NavMain() {
   const items = [
     {
       title: t("github"),
-      url: "https://github.com/memodb-io/memobase",
+      url: "https://github.com/jianify-llc/memoia-inspector",
       icon: Github,
     },
     {
       title: t("docs"),
-      url: "https://docs.memobase.io/",
+      url: "https://github.com/jianify-llc/memoia/blob/main/docs/api.md",
       icon: BookText,
-    },
-    {
-      title: t("dashboard"),
-      url: "https://app.memobase.io/dashboard",
-      icon: LayoutDashboard,
-    },
-    {
-      title: t("playground"),
-      url: "https://app.memobase.io/playground",
-      icon: Play,
-    },
-    {
-      title: t("configTool"),
-      url: "https://app.memobase.io/playground/config-tool",
-      icon: PenTool,
     },
   ];
 

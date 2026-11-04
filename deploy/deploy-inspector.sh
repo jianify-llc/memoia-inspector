@@ -34,23 +34,31 @@ if [[ "$mode" == install-runtime-env ]]; then
   runtime_tmp=$(mktemp "$root/.deploy/runtime-env.XXXXXX")
   trap 'rm -f -- "$runtime_tmp"' EXIT
   tee "$runtime_tmp" >/dev/null
-  python3 - "$runtime_tmp" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-expected = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"}
-lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-values = {}
-for line in lines:
-    key, separator, value = line.partition("=")
-    if (not separator or key not in expected or key in values or not value
-            or re.search(r"[\s\x00$#'\"\\]", value)):
-        sys.exit("Invalid Inspector runtime configuration")
-    values[key] = value
-if set(values) != expected:
-    sys.exit("Incomplete Inspector runtime configuration")
-PY
+  # Validate the fixed dotenv format without adding a host language runtime.
+  iconv -f UTF-8 -t UTF-8 "$runtime_tmp" >/dev/null 2>&1 || {
+    echo 'Invalid Inspector runtime configuration' >&2; exit 2;
+  }
+  cmp -s "$runtime_tmp" <(tr -d '\000' < "$runtime_tmp") || {
+    echo 'Invalid Inspector runtime configuration' >&2; exit 2;
+  }
+  runtime_keys='|'
+  while IFS= read -r runtime_line || [[ -n "$runtime_line" ]]; do
+    [[ "$runtime_line" == *=* ]] || { echo 'Invalid Inspector runtime configuration' >&2; exit 2; }
+    runtime_key=${runtime_line%%=*}
+    runtime_value=${runtime_line#*=}
+    case "$runtime_key" in
+      OPENAI_API_KEY|OPENAI_BASE_URL|OPENAI_MODEL) ;;
+      *) echo 'Invalid Inspector runtime configuration' >&2; exit 2 ;;
+    esac
+    [[ "$runtime_keys" != *"|$runtime_key|"* ]] || { echo 'Duplicate Inspector runtime key' >&2; exit 2; }
+    if [[ -z "$runtime_value" || "$runtime_value" =~ [[:space:]] || "$runtime_value" == *'$'* || "$runtime_value" == *'#'* || "$runtime_value" == *"'"* || "$runtime_value" == *'"'* || "$runtime_value" == *\\* ]]; then
+      echo 'Invalid Inspector runtime configuration' >&2; exit 2;
+    fi
+    runtime_keys+="$runtime_key|"
+  done < "$runtime_tmp"
+  for runtime_key in OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL; do
+    [[ "$runtime_keys" == *"|$runtime_key|"* ]] || { echo 'Incomplete Inspector runtime configuration' >&2; exit 2; }
+  done
   if [[ -f "$root/.env" ]] && cmp -s "$runtime_tmp" "$root/.env"; then
     echo 'Inspector runtime config already matches the test Environment.'
     exit 0

@@ -193,7 +193,7 @@
     "completed": "已更新",
     "failed": "维护失败",
     "pendingBlobs": "待合批 Blob：{count}",
-    "batch": "Blob {count} 个 · 尝试 {attempts}/4 次",
+    "batch": "Blob {count} 个 · 执行分片 {slices} 个",
     "stale": "事实已提交；画像和事件可能仍显示旧文本，直到维护成功。维护失败不应重新导入消息。",
     "recover": "恢复原 flush",
     "automaticRetry": "可在尝试预算内自动恢复",
@@ -233,7 +233,7 @@
     "new_user": "清空记忆"
   },
   "assistant": {
-    "welcomeMessage": "欢迎使用 Memobase，今天我能为您做些什么？",
+    "welcomeMessage": "欢迎使用 Memoia，今天有什么想聊的？",
     "scrollToBottom": "滚动到底部",
     "writeMessage": "输入消息...",
     "send": "发送",
@@ -255,7 +255,7 @@
   },
   "settings": {
     "title": "设置",
-    "desc": "请输入 Memobase 服务的 URL 和 KEY",
+    "desc": "请输入 Memoia 服务地址和项目密钥",
     "placeholder": "在此处输入您的消息。",
     "issue": "Issue",
     "idea": "Idea",

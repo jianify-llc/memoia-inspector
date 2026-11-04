@@ -1,4 +1,32 @@
-# Test deployment
+# Docker and Cloudflare deployment
+
+Both targets run the same TypeScript Next.js application and fixed SDK. Docker uses `next build` and Node standalone; Cloudflare uses OpenNext and Workers Static Assets. They can run simultaneously on different protected hostnames and connect to the same Memoia service. A single hostname routes to the explicitly selected deployment; switching that target is separate configuration maintenance. Switching or restoring a UI does not undo completed Memoia writes.
+
+## Cloudflare Workers
+
+`wrangler.jsonc` has a generic `memoia-inspector` configuration and the Luvel Test instance `luvel-memoia-inspector-test`. It has no upstream routes, R2 bucket, tail Worker or incremental-cache service. The app's authenticated pages use dynamic rendering; no ISR cache, database or Queue is needed. Keep `workers_dev` and preview URLs disabled. Preserve whole-hostname Cloudflare Access protection, including API routes and Server Actions; project Bearer credentials are separate from the administrator identity.
+
+The optional Test `MEMOIA` binding targets `luvel-memoia-test`. `MEMOIA_BINDING_ORIGIN` identifies which entered project endpoint belongs to this binding. Only that exact HTTPS origin uses the bound transport; other project endpoints use the existing HTTP path. Missing or failed configured bindings never silently resend to HTTP. Docker leaves this setting unset. Both paths use the same SDK, project cookies, validation and original-operation recovery.
+
+For local work, build and preview from an isolated copy without business `.env` or `.dev.vars` files. Next/OpenNext can read those files before Wrangler starts; an empty Wrangler env file alone is not enough. `pnpm ci:local --mode full` prepares such a copy automatically. Generic manual commands are:
+
+```sh
+pnpm build:cloudflare
+pnpm preview
+# Test configuration: pass --env test to the corresponding OpenNext command.
+# Local packaging only; no upload or automatic resource provisioning:
+node node_modules/wrangler/bin/wrangler.js versions upload --env test --dry-run --outdir /tmp/inspector-worker-output --env-file /path/to/empty.env
+```
+
+Before the first Test release, the resource owner registers a closed initial Worker, configures the protected hostname and Access application, and adds the Test Service Binding. This is a separate approved setup; the release helper does not create resources, routes, Access policies or Secrets. Set `MEMOIA_BINDING_ORIGIN` to the actual Memoia endpoint if different from the candidate. Optional Playground settings are runtime Worker secrets/vars using the existing `OPENAI_*` names; never embed provider credentials in the build. With no model configuration the optional Playground remains unavailable, while administration works.
+
+The manual `deploy-cloudflare-test.yml` workflow requires repository variable `ENABLE_CLOUDFLARE_TEST_DEPLOY=true`, the GitHub `test` Environment, `CLOUDFLARE_ACCOUNT_ID`, `CF_TEST_ZONE_ID` and `CF_TEST_PUBLIC_ORIGIN` variables, and a `CLOUDFLARE_API_TOKEN` secret. The token needs target Worker publication plus read-only metadata for the Memoia binding, zone and Access checks; it does not need permission to change Access policies, routes or domains. Configure the Environment to admit only `test`. The helper checks current Test SHA and the existing Worker/Access configuration, uploads once, reads the exact version ID from Wrangler's structured output, then rechecks before activating that ID. It cannot prove every Access precedence rule: the resource owner must review the actual protection and routes, and acceptance must verify unauthorized denial. Unknown or overlapping configurations stop publication instead of changing the platform.
+
+The existing Docker Test and Online workflows remain separate. This change adds a manual Cloudflare Test path; it does not enable automatic Cloudflare Online publication. For a later Online release use the company tag, frozen-artifact and approval contract, not an unreviewed CLI bypass. Recover a Cloudflare deployment only to a compatible, accepted exact Worker version; keep the current binding/Secret configuration compatible and verify routes/Access afterward. Neither a version rollback nor a Docker restore rolls back Memoia data.
+
+Local acceptance must exercise the built OpenNext Worker in workerd, cookies and project switching, SDK reads/writes and original-operation queries, same-origin rejection, and optional unconfigured-model behavior. Node tests, `next dev` and a successful bundle do not prove Workers behavior. Real Access, model streaming, remote Service Binding and release/rollback remain separate Test acceptance.
+
+## Docker / existing Test host
 
 ## GitHub Organization and image ownership
 
@@ -50,17 +78,17 @@ pnpm push:test
 gh workflow run deploy-test.yml --ref test --repo jianify-llc/memoia-inspector
 ```
 
-Local verification uses `scripts/verify_local.py` (default full):
+Local verification uses `scripts/verify-local.ts` with Node's native TypeScript execution (default full):
 
 | Mode | Business checks | Tool/build checks |
 | --- | --- | --- |
 | quick | Frozen install, SDK identity, typecheck, lint, offline/mock tests; loopback HTTP fixtures remain in full | Development feedback; no audit, deployment fixtures or image build |
-| full with base | Business-affecting changes run SDK, types, lint, business tests and audit | Reliable multi-commit diff selects deployment fixtures; Docker/build/dependency changes add a native image build |
-| full without reliable base | Complete business checks and production dependency audit | All deployment fixtures and native Docker build, no push |
+| full with base | Business-affecting changes run SDK, types, lint, business tests and audit | Reliable multi-commit diff selects deployment fixtures; build/dependency changes add Docker and OpenNext verification |
+| full without reliable base | Complete business checks and production dependency audit | All deployment fixtures, native Docker and OpenNext builds, no push |
 
-`push:test` obtains the exact remote Test SHA before full checks. An empty reliable diff selects nothing; missing, zero, unavailable or non-ancestor base, or a dirty worktree, expands to all checks, and malformed bases fail. Business scope covers application/components/lib/hooks/i18n/types/public/api/utils/messages, business tests and their configuration. Build scope covers Dockerfile, .dockerignore, dependency/registry manifests, vendored SDK, Next/PostCSS/TypeScript configuration. Deployment-tool scope covers scripts, deploy, hooks, workflows and their tests. These are one application's explicit path rules, not historical successful-run inference. Python 3, Node and pnpm 10.12.4 are required for selected checks; ShellCheck/Docker only for selected tool/build work. Dependency downloads are preparation, not offline test execution.
+`push:test` obtains the exact remote Test SHA before full checks. An empty reliable diff selects nothing; missing, zero, unavailable or non-ancestor base, or a dirty worktree, expands to all checks, and malformed bases fail. Business scope covers application/components/lib/hooks/i18n/types/public/api/utils/messages, business tests and their configuration. Build scope covers Dockerfile, .dockerignore, dependency/registry manifests, vendored SDK, Next/PostCSS/TypeScript and Worker configuration. Deployment-tool scope covers scripts, deploy, hooks, workflows and their tests. These are one application's explicit path rules, not historical successful-run inference. Node 22.17+ (Node 24 in Docker) and pnpm 10.12.4 run the TS tools; ShellCheck/Docker are required for selected tool/build work. Dependency downloads are preparation, not offline test execution.
 
-Local runs copy source excluding business .env files. Business subprocesses use an environment allowlist without GitHub, deployment or platform secrets. Only credential-free proxy settings survive dependency preparation. Local image builds label the exact Git HEAD and never push. Fixtures run with no network; cleanup inspects/removes only this batch's unique container/image and fails on uncertain cleanup. Budget is 30 minutes. No local or cloud build proves real Memoia/model calls or Access acceptance.
+Local runs copy source excluding business `.env`, `.dev.vars` and their environment variants. Business subprocesses use an environment allowlist without GitHub, deployment or platform secrets. Only credential-free proxy settings survive dependency preparation. Local image builds label the exact Git HEAD and never push. Fixtures run in a Node/Debian container with no network; cleanup inspects/removes only this batch's unique container/image and fails on uncertain cleanup. Budget is 30 minutes. No local or cloud build proves real Memoia/model calls or Access acceptance.
 
 The allowlist retains the pnpm tool directory `PNPM_HOME`, so local dependency installation reuses the configured package store. Registry, platform and business credentials remain excluded.
 

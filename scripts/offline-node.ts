@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from 'node:module';
 
 let attempted = false;
 process.on('exit', () => { if (attempted) process.exitCode = 1; });
-function forbidden() {
+function forbidden(): never {
   attempted = true;
   process.exitCode = 1;
   throw new Error('QUICK_NETWORK_FORBIDDEN');

@@ -8,7 +8,7 @@ import zh from "@/messages/zh.json";
 import { MaintenanceNotice } from "@/components/maintenance-status";
 
 const flush = { operation_id: "11111111-1111-4111-8111-111111111111", status: "failed" as const,
-  blob_ids: ["22222222-2222-4222-8222-222222222222"], attempts: 4, available_at: null,
+  blob_ids: ["22222222-2222-4222-8222-222222222222"], attempts: 5, available_at: null,
   error: { code: "maintenance_timeout", retryable: true }, retryable: true };
 const state: MaintenanceStatus = { pending_blob_count: 0, flushes: [flush] };
 const render = (status: MaintenanceStatus, locale = "en", onRecover?: (id: string) => void) => renderToStaticMarkup(
@@ -18,9 +18,10 @@ const render = (status: MaintenanceStatus, locale = "en", onRecover?: (id: strin
 );
 
 describe("Fact confirmation is independent of derived UI state", () => {
-  it("shows fixed batch progress and original-flush recovery after a derived failure", () => {
+  it("shows execution slices and original-flush recovery after a derived failure", () => {
     const html = render(state, "en", () => undefined);
-    expect(html).toContain("Blobs 1 · Attempts 4/4");
+    expect(html).toContain("Blobs 1 · Execution slices 5");
+    expect(render(state, "zh")).toContain("Blob 1 个 · 执行分片 5 个");
     expect(html).toContain("maintenance_timeout");
     expect(html).toContain("does not require importing messages again");
     expect(html).toContain("Resume original flush");
@@ -44,7 +45,7 @@ describe("Fact confirmation is independent of derived UI state", () => {
   });
   it("shows the bounded tail and automatic backoff without offering a fresh retry budget", () => {
     const html = render({ pending_blob_count: 2, flushes: [{ ...flush, status: "pending", attempts: 1 }] }, "en", () => undefined);
-    expect(html).toContain("Blobs 1 · Attempts 1/4");
+    expect(html).toContain("Blobs 1 · Execution slices 1");
     expect(html).toContain("maintenance_timeout");
     expect(html).not.toContain("Resume original flush");
     expect(html).not.toContain("Up to date");

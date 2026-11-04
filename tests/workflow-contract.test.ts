@@ -74,7 +74,7 @@ describe('Test and Online release boundaries', () => {
       const source = readFileSync(resolve(__dirname, '../.github/workflows', file), 'utf8');
       expect(source).not.toMatch(/verify_local|pnpm (?:test|lint|typecheck|audit|check:sdk|build)|setup-node|pnpm\/action-setup/);
     }
-    const local = readFileSync(resolve(__dirname, '../scripts/verify_local.py'), 'utf8');
+    const local = readFileSync(resolve(__dirname, '../scripts/verify-local.ts'), 'utf8');
     for (const check of ['check:sdk', 'typecheck', 'lint', 'docker', 'audit', 'tests/deploy-inspector.test.sh']) expect(local).toContain(check);
     expect(local).not.toContain('15.5.26');
   });

@@ -3,6 +3,7 @@
 import { MemoiaClient, MemoiaError } from "@jianify/memoia";
 
 import { cookies } from "next/headers";
+import { memoiaTransport } from "@/lib/memoia-transport";
 
 const COOKIE_NAME = "MEMOBASE_INSPECTOR_LOCALE";
 const USER_COOKIE_NAME = "MEMOBASE_INSPECTOR_USER";
@@ -17,7 +18,7 @@ const cookieOptions = {
 export async function memoiaClient() {
   const [baseUrl, apiKey] = await getLocale();
   if (!baseUrl || !apiKey) return null;
-  return new MemoiaClient({ baseUrl, apiKey, maxAttempts: 2, readTimeoutMs: 10_000 });
+  return new MemoiaClient({ baseUrl, apiKey, fetch: memoiaTransport(baseUrl), maxAttempts: 2, readTimeoutMs: 10_000 });
 }
 
 export async function getLocale() {

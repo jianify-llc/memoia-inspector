@@ -11,8 +11,8 @@ import CommonLayout from "@/components/common-layout";
 import { GoogleAnalytics, GoogleTagManager } from "@next/third-parties/google";
 
 export const metadata: Metadata = {
-  title: "Memobase - Inspector",
-  description: "Memobase Inspector",
+  title: "Memoia Inspector",
+  description: "Inspect and manage Memoia memories",
 };
 
 export default async function RootLayout({

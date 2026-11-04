@@ -35,7 +35,7 @@ export default function ApiKeys({ project }: { project: Project }) {
               {"KEY"}
               <Link
                 className="flex justify-center items-center text-sm text-muted-foreground hover:text-primary underline ml-2 group/item"
-                href="https://docs.memobase.io/quickstart#connect-to-memobase-backend"
+                href="https://github.com/jianify-llc/memoia/tree/main/sdks/typescript"
                 target="_blank"
               >
                 {t("keyTips")}

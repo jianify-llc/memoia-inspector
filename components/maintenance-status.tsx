@@ -23,7 +23,7 @@ export function MaintenanceNotice({ state, busy = false, onRecover }: {
       {state.flushes.map(flush => (
         <div key={flush.operation_id} className="space-y-1 border-t pt-2">
           <code className="break-all text-xs">{flush.operation_id}</code> <Badge variant="secondary">{t(flush.status)}</Badge>
-          <p>{t("batch", { count: flush.blob_ids.length, attempts: flush.attempts })}</p>
+          <p>{t("batch", { count: flush.blob_ids.length, slices: flush.attempts })}</p>
           {flush.error ? <p>{flush.error.code} · {t(flush.status !== "failed" && flush.retryable ? "automaticRetry" : "manualRecovery")}</p> : null}
           {flush.status === "failed" && onRecover ? (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => onRecover(flush.operation_id)}>{t("recover")}</Button>

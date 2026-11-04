@@ -1,9 +1,11 @@
 import { playgroundClient } from "@/lib/openai";
-import { PLAYGROUND_INSTRUCTIONS, playgroundHistory, playgroundTools, playgroundInput,
+import { playgroundHistory, playgroundTools, playgroundInput,
   playgroundStream, playgroundCacheKey, supportsPromptCache } from "@/lib/playground-responses";
 
 import { memoiaClient, getMemoiaUser, getLocale } from "@/utils/memoia/client";
 import { verifyReferences, signReference } from "@/lib/playground-reference";
+import { chainInput, readChain, prepareChain, signChain } from "@/lib/playground-chain";
+import { messageFingerprint } from "@/lib/playground-reference";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 
@@ -30,7 +32,9 @@ export async function POST(req: Request) {
   }
   const body = await readJsonObject(req);
   if (body.error) return body.error;
-  const { messages, tools, reference_tokens } = body.data;
+  const { messages, tools, reference_tokens, session_id, request_id, chain_receipt } = body.data;
+  if (typeof session_id !== "string" || !/^[a-f0-9-]{36}$/i.test(session_id) ||
+    typeof request_id !== "string" || !/^[a-f0-9-]{36}$/i.test(request_id)) return new Response("Invalid session", { status: 400 });
   let history, modelTools;
   try { history = playgroundHistory(messages); modelTools = playgroundTools(tools); }
   catch { return new Response("Invalid Playground input", { status: 400 }); }
@@ -69,12 +73,20 @@ export async function POST(req: Request) {
     const model = process.env.OPENAI_MODEL;
     if (!model) return new Response("Playground model is not configured", { status: 503 });
     const cache = supportsPromptCache(model);
-    return playgroundStream((signal) => playgroundClient().responses.create({ model, stream: true, store: false,
-      instructions: PLAYGROUND_INSTRUCTIONS, input: playgroundInput(history, references, cache), tools: modelTools,
+    const scope = { projectId: project.project_id, userId: uid, sessionId: session_id };
+    let receipt;
+    try { receipt = readChain(chain_receipt, locale[1], scope); }
+    catch { return new Response("Invalid chain receipt", { status: 400 }); }
+    const full = chainInput(playgroundInput(history, references, cache));
+    const contextHash = messageFingerprint([model, modelTools, full[0]]);
+    const continuation = prepareChain(full, receipt, contextHash);
+    return playgroundStream((signal) => playgroundClient().responses.create({ model, stream: true, store: true,
+      ...continuation, tools: modelTools,
       ...(cache ? { prompt_cache_options: { mode: "implicit", ttl: "30m" },
-        prompt_cache_key: playgroundCacheKey(project.project_id, uid) } : {}) }, { signal: AbortSignal.any([req.signal, signal]) }),
+        prompt_cache_key: playgroundCacheKey(project.project_id, uid, session_id) } : {}) }, { signal: AbortSignal.any([req.signal, signal]) }),
       { "x-last-user-message": encodeURIComponent(history.lastText),
-      "x-last-user-recorded-at": reference.recordedAt }, { message_id: last.id, memoia_reference: referenceToken });
+      "x-last-user-recorded-at": reference.recordedAt, "x-playground-request": request_id }, { message_id: last.id, memoia_reference: referenceToken },
+      (response) => ({ session_id, request_id, chain_receipt: signChain(scope, response.id, contextHash, full, response.output, locale[1]) }));
   } catch (error) {
     void error;
     return new Response("Internal Server Error", { status: 500 });

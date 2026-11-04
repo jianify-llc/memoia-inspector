@@ -354,7 +354,7 @@ export default function Users({ project }: { project: Project }) {
                           {t("table.memories")}
                         </Button>
                         <JsonDownload
-                          fileName={`memobase-${user.id}.json`}
+                          fileName={`memoia-${user.id}.json`}
                           disabled={invalidUserIds.includes(user.id) || downloadingUserId === user.id}
                           beforeEvent={() => downloadMemories(user.id)}
                           trigger={

@@ -1,2 +1,2 @@
 #!/bin/sh
-exec python3 scripts/test_push.py check
+exec node --experimental-strip-types scripts/test-push.ts check
