@@ -7,12 +7,12 @@ const sha = "a".repeat(40);
 const id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const env = { ...process.env, GITHUB_SHA: sha, GITHUB_REF: "refs/heads/test", CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "fixture", CF_TEST_ZONE_ID: "zone", CF_TEST_PUBLIC_ORIGIN: "https://inspector.example.com" };
 
-function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number> } = {}) {
+function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number>; serviceEnvironment?: string | null; service?: string; entrypoint?: string } = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     if (url.pathname.startsWith("/client/v4/zones/zone/access/") && options.accessStatus) return Response.json({ success: false }, { status: options.accessStatus });
     let result: unknown;
-    if (url.pathname.endsWith("/settings")) result = { bindings: [{ name: "MEMOIA", type: "service", service: "luvel-memoia-test" }] };
+    if (url.pathname.endsWith("/settings")) result = { bindings: [{ name: "MEMOIA", type: "service", service: options.service ?? "luvel-memoia-test", ...(options.serviceEnvironment === null ? {} : { environment: options.serviceEnvironment ?? "production" }), ...(options.entrypoint ? { entrypoint: options.entrypoint } : {}) }] };
     else if (url.pathname.endsWith("/subdomain")) result = { enabled: false, previews_enabled: false };
     else if (url.pathname === "/client/v4/zones/zone/access/apps/protected/policies") result = options.emptyPolicies ? [] : [{ decision: options.bypass ? "bypass" : "allow" }];
     else if (url.pathname === "/client/v4/zones/zone/access/apps") result = [
@@ -61,6 +61,12 @@ describe("Cloudflare Test release", () => {
   it("rejects bypass policies and overlapping hostname rules", async () => {
     await expect(preflight(env, mockApi({ bypass: true }))).rejects.toThrow("authentication");
     await expect(preflight(env, mockApi({ relatedPath: true }))).rejects.toThrow("overlapping");
+  });
+  it("accepts only the Test Worker's default HTTP service environment", async () => {
+    await expect(preflight(env, mockApi({ serviceEnvironment: null }))).resolves.toBeUndefined();
+    await expect(preflight(env, mockApi({ serviceEnvironment: "staging" }))).rejects.toThrow("binding");
+    await expect(preflight(env, mockApi({ service: "memoia-online" }))).rejects.toThrow("binding");
+    await expect(preflight(env, mockApi({ entrypoint: "Admin" }))).rejects.toThrow("binding");
   });
   it("fails closed for missing protection, empty policies or unreadable and incomplete Access state", async () => {
     await expect(preflight({ ...env, CF_TEST_PUBLIC_ORIGIN: "https://other.example.com" }, mockApi())).rejects.toThrow("matching Access application");

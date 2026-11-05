@@ -36,7 +36,8 @@ export async function preflight(env: Env, transport: Fetch = fetch) {
     return body.result;
   }
   const settings = await get(`/workers/scripts/${worker}/settings`) as { bindings?: Array<{ name?: string; type?: string; service?: string; environment?: string; entrypoint?: string }> };
-  if (!settings.bindings?.some(b => b.name === "MEMOIA" && b.type === "service" && b.service === "luvel-memoia-test" && !b.environment && !b.entrypoint)) throw new Error("Existing MEMOIA binding does not match Test target");
+  // Cloudflare reports the named Worker's default service environment as production.
+  if (!settings.bindings?.some(b => b.name === "MEMOIA" && b.type === "service" && b.service === "luvel-memoia-test" && (b.environment === undefined || b.environment === "production") && !b.entrypoint)) throw new Error("Existing MEMOIA binding does not match Test target");
   const subdomain = await get(`/workers/scripts/${worker}/subdomain`) as { enabled?: boolean; previews_enabled?: boolean };
   if (subdomain.enabled !== false || subdomain.previews_enabled !== false) throw new Error("workers.dev and preview URLs must already be disabled");
   const zoneApi = `https://api.cloudflare.com/client/v4/zones/${encodeURIComponent(zone)}`;
