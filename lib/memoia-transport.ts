@@ -1,7 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-/** A binding belongs to one origin; never send another server's credentials to it. */
-export function memoiaTransport(baseUrl: string): typeof fetch | undefined {
+export function memoiaBindingOrigin(): string | undefined {
   const configuredOrigin = process.env.MEMOIA_BINDING_ORIGIN;
   if (!configuredOrigin) return undefined;
 
@@ -9,8 +8,17 @@ export function memoiaTransport(baseUrl: string): typeof fetch | undefined {
   if (bindingOrigin.origin !== configuredOrigin || bindingOrigin.protocol !== "https:") {
     throw new Error("MEMOIA_BINDING_ORIGIN must be an HTTPS origin");
   }
-  const requested = new URL(baseUrl);
-  if (requested.origin !== bindingOrigin.origin || requested.pathname !== "/" || requested.username || requested.password || requested.search || requested.hash) return undefined;
+  return configuredOrigin;
+}
+
+export function memoiaEndpointAllowed(baseUrl: string, origin = memoiaBindingOrigin()): boolean {
+  return Boolean(baseUrl) && (!origin || baseUrl === origin || baseUrl === `${origin}/`);
+}
+
+export function memoiaTransport(baseUrl: string): typeof fetch | undefined {
+  const origin = memoiaBindingOrigin();
+  if (!origin) return undefined;
+  if (!memoiaEndpointAllowed(baseUrl, origin)) throw new Error("Memoia endpoint does not match this deployment");
 
   const binding = getCloudflareContext().env.MEMOIA;
   if (!binding) throw new Error("MEMOIA service binding is missing");

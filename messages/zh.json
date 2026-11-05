@@ -256,6 +256,7 @@
   "settings": {
     "title": "设置",
     "desc": "请输入 Memoia 服务地址和项目密钥",
+    "managedDesc": "请输入此 Memoia 环境的项目密钥。",
     "placeholder": "在此处输入您的消息。",
     "issue": "Issue",
     "idea": "Idea",

@@ -3,7 +3,7 @@
 import { MemoiaClient, MemoiaError } from "@jianify/memoia";
 
 import { cookies } from "next/headers";
-import { memoiaTransport } from "@/lib/memoia-transport";
+import { memoiaBindingOrigin, memoiaEndpointAllowed, memoiaTransport } from "@/lib/memoia-transport";
 
 const COOKIE_NAME = "MEMOBASE_INSPECTOR_LOCALE";
 const USER_COOKIE_NAME = "MEMOBASE_INSPECTOR_USER";
@@ -14,6 +14,12 @@ const cookieOptions = {
   path: "/",
 };
 
+function projectCredentials(value: string | undefined) {
+  const fields = value?.split("|");
+  if (!fields || fields.length !== 2 || !fields[1] || !memoiaEndpointAllowed(fields[0])) return null;
+  return fields;
+}
+
 /** 项目 Cookie 是凭据唯一 owner，读取和管理共用同一 SDK。 */
 export async function memoiaClient() {
   const [baseUrl, apiKey] = await getLocale();
@@ -22,12 +28,17 @@ export async function memoiaClient() {
 }
 
 export async function getLocale() {
-  const locale = (await cookies()).get(COOKIE_NAME)?.value || "";
-  return locale.split("|");
+  return projectCredentials((await cookies()).get(COOKIE_NAME)?.value) ?? [];
 }
 
 export async function setLocale(url: string, key: string) {
-  const val = `${url.trim()}|${key.trim()}`;
+  const endpoint = url.trim();
+  const apiKey = key.trim();
+  const origin = memoiaBindingOrigin();
+  if (!memoiaEndpointAllowed(endpoint, origin) || !apiKey || endpoint.includes("|") || apiKey.includes("|")) {
+    throw new MemoiaError("INVALID_INPUT", 400, false);
+  }
+  const val = `${origin ?? endpoint}|${apiKey}`;
   const cookieStore = await cookies();
   const locale = cookieStore.get(COOKIE_NAME)?.value || "";
   if (locale === val) return;
@@ -48,7 +59,7 @@ export async function clearMemoiaUser() {
 /** 读取只使用已分配身份，禁止因刷新／未知结果而隐式创建其他用户。 */
 export async function getMemoiaUser() {
   const cookieStore = await cookies();
-  if (!cookieStore.get(COOKIE_NAME)?.value) {
+  if (!projectCredentials(cookieStore.get(COOKIE_NAME)?.value)) {
     cookieStore.delete(USER_COOKIE_NAME);
     throw new MemoiaError("PROJECT_REQUIRED", 401, false);
   }
@@ -60,7 +71,7 @@ export async function getMemoiaUser() {
 /** 先把稳定身份交付浏览器，再允许另一请求发送供应商写入；响应丢失不会留下无身份创建。 */
 export async function prepareMemoiaUser(proposedId: string) {
   const cookieStore = await cookies();
-  if (!cookieStore.get(COOKIE_NAME)?.value) throw new MemoiaError("PROJECT_REQUIRED", 401, false);
+  if (!projectCredentials(cookieStore.get(COOKIE_NAME)?.value)) throw new MemoiaError("PROJECT_REQUIRED", 401, false);
   const existing = cookieStore.get(USER_COOKIE_NAME)?.value;
   if (existing) return existing;
   const uid = proposedId;

@@ -5,7 +5,10 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const worker = "luvel-memoia-inspector-test";
+const memoiaOrigin = "https://test-memoia.luvel.app";
+const memoiaWorker = "luvel-memoia-test";
 type AccessApp = { id: string; domain?: string; self_hosted_domains?: string[]; type?: string; destinations?: Array<{ type?: string; uri?: string; worker_id?: string; overrides?: unknown[] }> };
+type Binding = { name?: string; type?: string; service?: string; environment?: string; entrypoint?: string; text?: string };
 type Env = NodeJS.ProcessEnv;
 type Fetch = typeof fetch;
 
@@ -16,7 +19,20 @@ function hostMatches(pattern: string | undefined, host: string) {
   return new RegExp(`^${escaped}$`).test(host.toLowerCase());
 }
 
-export async function preflight(env: Env, transport: Fetch = fetch) {
+function verifyMemoiaBindings(bindings: Binding[] | undefined, scope: string) {
+  const [service, duplicateService] = bindings?.filter(b => b.name === "MEMOIA") ?? [];
+  // Cloudflare reports the named Worker's default service environment as production.
+  if (!service || duplicateService || service.type !== "service" || service.service !== memoiaWorker
+    || (service.environment !== undefined && service.environment !== "production") || service.entrypoint) {
+    throw new Error(`${scope} MEMOIA binding does not match Test target`);
+  }
+  const [origin, duplicateOrigin] = bindings?.filter(b => b.name === "MEMOIA_BINDING_ORIGIN") ?? [];
+  if (!origin || duplicateOrigin || origin.type !== "plain_text" || origin.text !== memoiaOrigin) {
+    throw new Error(`${scope} MEMOIA_BINDING_ORIGIN does not match Test origin`);
+  }
+}
+
+export async function preflight(env: Env, transport: Fetch = fetch, uploadedVersionId?: string) {
   const { CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: token, CF_TEST_PUBLIC_ORIGIN: origin, CF_TEST_ZONE_ID: zone } = env;
   if (!account || !token || !origin || !zone) throw new Error("Missing Cloudflare preflight configuration");
   const url = new URL(origin);
@@ -35,9 +51,14 @@ export async function preflight(env: Env, transport: Fetch = fetch) {
     }
     return body.result;
   }
-  const settings = await get(`/workers/scripts/${worker}/settings`) as { bindings?: Array<{ name?: string; type?: string; service?: string; environment?: string; entrypoint?: string }> };
-  // Cloudflare reports the named Worker's default service environment as production.
-  if (!settings.bindings?.some(b => b.name === "MEMOIA" && b.type === "service" && b.service === "luvel-memoia-test" && (b.environment === undefined || b.environment === "production") && !b.entrypoint)) throw new Error("Existing MEMOIA binding does not match Test target");
+  const workerPath = `/workers/scripts/${worker}`;
+  const settings = await get(`${workerPath}/settings`) as { bindings?: Binding[] };
+  verifyMemoiaBindings(settings.bindings, "Existing");
+  if (uploadedVersionId) {
+    const version = await get(`${workerPath}/versions/${uploadedVersionId}`) as { id?: string; resources?: { bindings?: Binding[] } };
+    if (version.id !== uploadedVersionId) throw new Error("Uploaded version identity mismatch");
+    verifyMemoiaBindings(version.resources?.bindings, "Uploaded version");
+  }
   const subdomain = await get(`/workers/scripts/${worker}/subdomain`) as { enabled?: boolean; previews_enabled?: boolean };
   if (subdomain.enabled !== false || subdomain.previews_enabled !== false) throw new Error("workers.dev and preview URLs must already be disabled");
   const zoneApi = `https://api.cloudflare.com/client/v4/zones/${encodeURIComponent(zone)}`;
@@ -74,7 +95,7 @@ export async function release(env: Env, transport: Fetch = fetch, runner: Runner
     const versions = records.filter(record => record.type === "version-upload" && record.worker_name === worker);
     if (versions.length !== 1 || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(versions[0].version_id)) throw new Error("Uploaded version identity missing or ambiguous");
     checkHead();
-    await preflight(env, transport);
+    await preflight(env, transport, versions[0].version_id);
     checkHead();
     runner(cli, ["versions", "deploy", `${versions[0].version_id}@100`, "--env", "test", "--env-file", emptyEnv, "--yes", "--message", sha], childEnv);
   } finally { rmSync(dir, { recursive: true, force: true }); }

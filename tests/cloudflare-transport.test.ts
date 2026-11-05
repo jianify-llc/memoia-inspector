@@ -7,11 +7,15 @@ import { memoiaTransport } from "../lib/memoia-transport";
 afterEach(() => { delete process.env.MEMOIA_BINDING_ORIGIN; vi.resetAllMocks(); });
 
 describe("Memoia transport", () => {
-  it("uses ordinary HTTP without configuration or for a different origin", () => {
+  it("leaves ordinary HTTP available to self-hosted Inspector", () => {
     expect(memoiaTransport("https://one.example")).toBeUndefined();
+    expect(context).not.toHaveBeenCalled();
+  });
+  it("rejects any endpoint other than the configured origin before network I/O", () => {
     process.env.MEMOIA_BINDING_ORIGIN = "https://one.example";
-    expect(memoiaTransport("https://other.example")).toBeUndefined();
-    expect(memoiaTransport("https://one.example/api")).toBeUndefined();
+    for (const endpoint of ["https://other.example", "http://one.example", "https://one.example/api", "https://one.example/?test=1", "https://key@one.example"]) {
+      expect(() => memoiaTransport(endpoint)).toThrow("does not match");
+    }
     expect(context).not.toHaveBeenCalled();
   });
   it("uses the binding for the configured origin and propagates failure", async () => {

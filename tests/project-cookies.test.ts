@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { cookies } from "next/headers";
+import { GET as getUsage } from "@/app/api/memobase/usage/route";
 import { POST } from "@/app/api/memobase/user/route";
-import { memoiaClient, clearLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
+import { memoiaClient, clearLocale, getLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn() }));
 
 const values = new Map<string, string>();
 const setCookie = vi.fn((name: string, value: string) => { values.set(name, value); });
@@ -16,10 +19,11 @@ const cookieStore = {
 beforeEach(() => {
   values.clear();
   setCookie.mockClear();
+  vi.mocked(getCloudflareContext).mockReset();
   vi.mocked(cookies).mockResolvedValue(cookieStore as never);
 });
 
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("project and playground cookie ownership", () => {
   it("clears the old user when switching projects", async () => {
@@ -52,6 +56,40 @@ describe("project and playground cookie ownership", () => {
     values.set("MEMOBASE_INSPECTOR_USER", "old-user");
     await clearLocale();
     expect(values.size).toBe(0);
+  });
+
+  it("rejects a cross-environment save and keeps the current project intact", async () => {
+    vi.stubEnv("MEMOIA_BINDING_ORIGIN", "https://test.example");
+    await setLocale("https://test.example/", "test-key");
+    values.set("MEMOBASE_INSPECTOR_USER", "existing-user");
+    await expect(setLocale("https://online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await getLocale()).toEqual(["https://test.example", "test-key"]);
+    expect(await getMemoiaUser()).toBe("existing-user");
+  });
+
+  it("treats an old cross-environment cookie as disconnected everywhere", async () => {
+    vi.stubEnv("MEMOIA_BINDING_ORIGIN", "https://test.example");
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://online.example|old-key");
+    values.set("MEMOBASE_INSPECTOR_USER", "old-user");
+    const transport = vi.fn(); vi.stubGlobal("fetch", transport);
+    expect(await getLocale()).toEqual([]);
+    expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
+    await expect(prepareMemoiaUser("new-user")).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
+    await expect(getMemoiaUser()).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("routes the Test project SDK request only through the binding", async () => {
+    vi.stubEnv("MEMOIA_BINDING_ORIGIN", "https://test.example");
+    const networkFetch = vi.fn(); vi.stubGlobal("fetch", networkFetch);
+    const boundFetch = vi.fn().mockResolvedValue(Response.json({ usages: [] }));
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: boundFetch } } } as never);
+    await setLocale("https://test.example", "test-key");
+    expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(200);
+    expect(boundFetch).toHaveBeenCalledWith(expect.stringContaining("https://test.example/api/project/usage"), expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer test-key" }),
+    }));
+    expect(networkFetch).not.toHaveBeenCalled();
   });
 });
 

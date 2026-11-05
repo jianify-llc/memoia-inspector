@@ -7,12 +7,22 @@ const sha = "a".repeat(40);
 const id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const env = { ...process.env, GITHUB_SHA: sha, GITHUB_REF: "refs/heads/test", CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "fixture", CF_TEST_ZONE_ID: "zone", CF_TEST_PUBLIC_ORIGIN: "https://inspector.example.com" };
 
-function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number>; serviceEnvironment?: string | null; service?: string; entrypoint?: string } = {}) {
+function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number>; serviceEnvironment?: string | null; service?: string; entrypoint?: string; origin?: string | null; duplicateService?: boolean; uploadedService?: string; uploadedOrigin?: string | null } = {}) {
+  const bindings = (uploaded: boolean) => {
+    const service = { name: "MEMOIA", type: "service", service: (uploaded ? options.uploadedService : options.service) ?? "luvel-memoia-test", ...(options.serviceEnvironment === null ? {} : { environment: options.serviceEnvironment ?? "production" }), ...(options.entrypoint ? { entrypoint: options.entrypoint } : {}) };
+    const origin = uploaded ? options.uploadedOrigin : options.origin;
+    return [
+      service,
+      ...(options.duplicateService ? [service] : []),
+      ...(origin === null ? [] : [{ name: "MEMOIA_BINDING_ORIGIN", type: "plain_text", text: origin ?? "https://test-memoia.luvel.app" }]),
+    ];
+  };
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     if (url.pathname.startsWith("/client/v4/zones/zone/access/") && options.accessStatus) return Response.json({ success: false }, { status: options.accessStatus });
     let result: unknown;
-    if (url.pathname.endsWith("/settings")) result = { bindings: [{ name: "MEMOIA", type: "service", service: options.service ?? "luvel-memoia-test", ...(options.serviceEnvironment === null ? {} : { environment: options.serviceEnvironment ?? "production" }), ...(options.entrypoint ? { entrypoint: options.entrypoint } : {}) }] };
+    if (url.pathname.endsWith("/settings")) result = { bindings: bindings(false) };
+    else if (url.pathname.endsWith(`/versions/${id}`)) result = { id, resources: { bindings: bindings(true) } };
     else if (url.pathname.endsWith("/subdomain")) result = { enabled: false, previews_enabled: false };
     else if (url.pathname === "/client/v4/zones/zone/access/apps/protected/policies") result = options.emptyPolicies ? [] : [{ decision: options.bypass ? "bypass" : "allow" }];
     else if (url.pathname === "/client/v4/zones/zone/access/apps") result = [
@@ -67,6 +77,9 @@ describe("Cloudflare Test release", () => {
     await expect(preflight(env, mockApi({ serviceEnvironment: "staging" }))).rejects.toThrow("binding");
     await expect(preflight(env, mockApi({ service: "memoia-online" }))).rejects.toThrow("binding");
     await expect(preflight(env, mockApi({ entrypoint: "Admin" }))).rejects.toThrow("binding");
+    await expect(preflight(env, mockApi({ duplicateService: true }))).rejects.toThrow("binding");
+    await expect(preflight(env, mockApi({ origin: null }))).rejects.toThrow("Test origin");
+    await expect(preflight(env, mockApi({ origin: "https://memoia.luvel.app" }))).rejects.toThrow("Test origin");
   });
   it("fails closed for missing protection, empty policies or unreadable and incomplete Access state", async () => {
     await expect(preflight({ ...env, CF_TEST_PUBLIC_ORIGIN: "https://other.example.com" }, mockApi())).rejects.toThrow("matching Access application");
@@ -91,6 +104,14 @@ describe("Cloudflare Test release", () => {
     expect(wrangler[0]).toContain("--keep-vars");
     expect(wrangler.every(c => c.includes("--env-file"))).toBe(true);
   });
+  it.each([{ uploadedService: "memoia-online" }, { uploadedOrigin: null }, { uploadedOrigin: "https://memoia.luvel.app" }])(
+    "does not activate an uploaded version with a wrong or missing Memoia binding: %j",
+    async options => {
+      const { run, commands } = fakeRunner([sha]);
+      await expect(release(env, mockApi(options), run)).rejects.toThrow("Uploaded version MEMOIA");
+      expect(commands.filter(c => c[0].endsWith("/wrangler")).map(c => c[2])).toEqual(["upload"]);
+    },
+  );
   it("does not upload stale candidates or deploy if head changes", async () => {
     const stale = fakeRunner(["c".repeat(40)]);
     await expect(release(env, mockApi(), stale.run)).rejects.toThrow("stale");
