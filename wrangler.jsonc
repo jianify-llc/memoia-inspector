@@ -13,7 +13,7 @@
       "name": "luvel-memoia-inspector-test",
       "workers_dev": false,
       "preview_urls": false,
-      "vars": { "MEMOIA_BINDING_ORIGIN": "https://test-memoia.jianify.dev" },
+      "vars": { "MEMOIA_BINDING_ORIGIN": "https://test-memoia.luvel.app" },
       "services": [{ "binding": "MEMOIA", "service": "luvel-memoia-test" }]
     }
   }

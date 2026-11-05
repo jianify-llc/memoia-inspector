@@ -7,22 +7,23 @@ const sha = "a".repeat(40);
 const id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const env = { ...process.env, GITHUB_SHA: sha, GITHUB_REF: "refs/heads/test", CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "fixture", CF_TEST_ZONE_ID: "zone", CF_TEST_PUBLIC_ORIGIN: "https://inspector.example.com" };
 
-function mockApi(options: { bypass?: boolean; relatedPath?: boolean } = {}) {
+function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number> } = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
+    if (url.pathname.startsWith("/client/v4/zones/zone/access/") && options.accessStatus) return Response.json({ success: false }, { status: options.accessStatus });
     let result: unknown;
     if (url.pathname.endsWith("/settings")) result = { bindings: [{ name: "MEMOIA", type: "service", service: "luvel-memoia-test" }] };
     else if (url.pathname.endsWith("/subdomain")) result = { enabled: false, previews_enabled: false };
-    else if (url.pathname === "/client/v4/zones/zone") result = { name: "example.com", account: { id: "account" } };
-    else if (url.pathname.endsWith("/policies")) result = [{ decision: options.bypass ? "bypass" : "allow" }];
-    else if (url.pathname.endsWith("/access/apps")) result = [
+    else if (url.pathname === "/client/v4/zones/zone/access/apps/protected/policies") result = options.emptyPolicies ? [] : [{ decision: options.bypass ? "bypass" : "allow" }];
+    else if (url.pathname === "/client/v4/zones/zone/access/apps") result = [
       { id: "protected", type: "self_hosted", domain: "inspector.example.com", destinations: [{ type: "public", uri: "inspector.example.com" }] },
-      { id: "unrelated", type: "self_hosted", domain: "*.other.example", destinations: [{ type: "worker", worker_id: "other" }] },
+      { id: "unrelated", type: "self_hosted", domain: "*.other.example", destinations: [{ type: "worker", worker_id: "f".repeat(32) }] },
       ...(options.relatedPath ? [{ id: "path", domain: "inspector.example.com/admin" }] : []),
     ];
     else throw new Error(`Unexpected API path ${url.pathname}`);
-    return Response.json({ success: true, result });
-  }) as unknown as typeof fetch;
+    const info = url.pathname.endsWith("/access/apps") ? options.appInfo ?? { total_pages: 1 } : options.policyInfo;
+    return Response.json({ success: true, result, ...(info ? { result_info: info } : {}) });
+  });
 }
 
 function fakeRunner(heads: string[], records: object[] = [{ type: "version-upload", worker_name: "luvel-memoia-inspector-test", version_id: id }]) {
@@ -47,10 +48,32 @@ describe("Cloudflare Test release", () => {
     expect(steps.at(-1).run).toBe("node --experimental-strip-types deploy/cloudflare-release.ts");
     for (const step of steps.filter((s: { uses?: string }) => s.uses)) expect(step.uses).toMatch(/@[0-9a-f]{40}$/);
   });
-  it("deduplicates identical Access apps and ignores unrelated wildcard rules", async () => {
-    await expect(preflight(env, mockApi())).resolves.toBeUndefined();
+  it("checks the specified zone without account Access or zone metadata permissions", async () => {
+    const transport = mockApi();
+    await expect(preflight(env, transport)).resolves.toBeUndefined();
+    expect(transport.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      "/client/v4/accounts/account/workers/scripts/luvel-memoia-inspector-test/settings",
+      "/client/v4/accounts/account/workers/scripts/luvel-memoia-inspector-test/subdomain",
+      "/client/v4/zones/zone/access/apps",
+      "/client/v4/zones/zone/access/apps/protected/policies",
+    ]);
+  });
+  it("rejects bypass policies and overlapping hostname rules", async () => {
     await expect(preflight(env, mockApi({ bypass: true }))).rejects.toThrow("authentication");
     await expect(preflight(env, mockApi({ relatedPath: true }))).rejects.toThrow("overlapping");
+  });
+  it("fails closed for missing protection, empty policies or unreadable and incomplete Access state", async () => {
+    await expect(preflight({ ...env, CF_TEST_PUBLIC_ORIGIN: "https://other.example.com" }, mockApi())).rejects.toThrow("matching Access application");
+    await expect(preflight(env, mockApi({ emptyPolicies: true }))).rejects.toThrow("authentication");
+    await expect(preflight(env, mockApi({ accessStatus: 403 }))).rejects.toThrow("(403)");
+    await expect(preflight(env, mockApi({ appInfo: { total_pages: 2 } }))).rejects.toThrow("incomplete");
+  });
+  it("rejects partial app and policy lists when total_pages is absent", async () => {
+    await expect(preflight(env, mockApi({ appInfo: { page: 1, per_page: 2, total_count: 3 } }))).rejects.toThrow("incomplete");
+    await expect(preflight(env, mockApi({ policyInfo: { page: 1, per_page: 1, total_count: 2 } }))).rejects.toThrow("incomplete");
+    await expect(preflight(env, mockApi({ policyInfo: { page: 2, total_pages: 1 } }))).rejects.toThrow("incomplete");
+    await expect(preflight(env, mockApi({ policyInfo: { per_page: 1 } }))).rejects.toThrow("incomplete");
+    await expect(preflight(env, mockApi({ policyInfo: { page: 1, per_page: 1000 } }))).resolves.toBeUndefined();
   });
   it("uploads once and deploys the exact version from Wrangler output", async () => {
     const { run, commands } = fakeRunner([sha]);
