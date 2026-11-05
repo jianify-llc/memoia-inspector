@@ -93,7 +93,9 @@
       "mdast-util-to-hast": "13.2.1",
       "lodash": "4.18.1",
       "assistant-cloud": "0.1.3",
-      "glob@10": "10.5.0",
+      "@opennextjs/cloudflare>glob": "14.0.2",
+      "@node-minify/core>glob": "14.0.2",
+      "@typescript-eslint/typescript-estree>minimatch": "11.0.4",
       "miniflare>undici": "7.30.1",
       "nanoid@5": "5.1.16"
     },
