@@ -18,6 +18,8 @@ export default function ProjectSettingsForm({ managed, hasWorker, defaultUrl }: 
 }) {
   const router = useRouter();
   const t = useTranslations("settings");
+  const canChooseConnection = managed && hasWorker && Boolean(defaultUrl);
+  const httpLabel = defaultUrl && `URL · ${new URL(defaultUrl).hostname}`;
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState(hasWorker ? "worker" : defaultUrl ?? "");
   const [key, setKey] = useState("");
@@ -42,28 +44,36 @@ export default function ProjectSettingsForm({ managed, hasWorker, defaultUrl }: 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-6 rounded shadow">
+    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-2xl rounded p-4 shadow sm:p-6">
       <h2 className="text-xl font-bold mb-2">{t("title")}</h2>
-      <p className="mb-6 text-gray-600">{t(managed ? "managedDesc" : "desc")}</p>
-      <div className="grid gap-4">
-        <div className="grid gap-3">
-          <Label htmlFor="url">{managed ? t("connection") : "URL"}</Label>
-          {managed ? (
-            <select
-              id="url"
-              name="url"
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            >
-              {hasWorker && <option value="worker">{t("worker")}</option>}
-              {defaultUrl && <option value={defaultUrl}>URL · {new URL(defaultUrl).hostname}</option>}
-            </select>
-          ) : (
+      <p className="mb-6 text-muted-foreground">{t(managed ? "keyDesc" : "desc")}</p>
+      <div className="grid gap-6">
+        {canChooseConnection ? (
+          <fieldset className="min-w-0 space-y-2">
+            <legend className="mb-2 text-sm font-medium">{t("connection")}</legend>
+            <label className="flex min-h-10 items-center gap-3 rounded-md border border-input px-3 py-2 text-sm">
+              <input type="radio" name="url" value="worker" checked={url === "worker"} onChange={(e) => setUrl(e.target.value)} />
+              {t("worker")}
+            </label>
+            <label className="flex min-h-10 items-center gap-3 rounded-md border border-input px-3 py-2 text-sm">
+              <input type="radio" name="url" value={defaultUrl} checked={url === defaultUrl} onChange={(e) => setUrl(e.target.value)} />
+              <span className="min-w-0 break-all">{httpLabel}</span>
+            </label>
+          </fieldset>
+        ) : managed ? (
+          <div className="grid gap-2 text-sm">
+            <span className="font-medium">{t("connection")}</span>
+            <p id="memoia-connection" className="break-all text-muted-foreground">
+              {hasWorker ? t("worker") : httpLabel ?? t("connectionUnavailable")}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <Label htmlFor="url">URL</Label>
             <Input id="url" name="url" value={url} onChange={(e) => setUrl(e.target.value)} />
-          )}
-        </div>
-        <div className="grid gap-3">
+          </div>
+        )}
+        <div className="grid gap-2">
           <Label htmlFor="key">KEY</Label>
           <Input
             id="key"

@@ -256,8 +256,9 @@
   "settings": {
     "title": "设置",
     "desc": "请输入 Memoia 服务地址和项目密钥",
-    "managedDesc": "请选择 Memoia 连接方式并输入项目密钥。",
+    "keyDesc": "请输入 Memoia 项目密钥。",
     "connection": "连接方式",
+    "connectionUnavailable": "尚未配置 Memoia 连接。",
     "worker": "Memoia Worker",
     "placeholder": "在此处输入您的消息。",
     "issue": "Issue",

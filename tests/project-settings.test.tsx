@@ -27,10 +27,17 @@ it.each([
     </NextIntlClientProvider>,
   );
   if (managed) {
-    const connection = screen.getByRole<HTMLSelectElement>("combobox", { name: "Connection" });
-    expect(connection.value).toBe(hasWorker ? "worker" : defaultUrl);
     expect(screen.queryByRole("textbox", { name: "URL" })).toBeNull();
-    if (defaultUrl) fireEvent.change(connection, { target: { value: defaultUrl } });
+    expect(screen.queryByRole("combobox")).toBeNull();
+    if (hasWorker && defaultUrl) {
+      const worker = screen.getByRole<HTMLInputElement>("radio", { name: "Memoia Worker" });
+      expect(worker.checked).toBe(true);
+      fireEvent.click(screen.getByRole("radio", { name: "URL · access.example" }));
+      expect(worker.checked).toBe(false);
+    } else {
+      expect(screen.queryAllByRole("radio")).toHaveLength(0);
+      expect(screen.getByText(hasWorker ? "Memoia Worker" : "URL · access.example")).toBeTruthy();
+    }
   } else {
     const url = screen.getByRole<HTMLInputElement>("textbox", { name: "URL" });
     expect(screen.queryByRole("combobox")).toBeNull();
@@ -41,4 +48,16 @@ it.each([
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   const endpoint = managed ? defaultUrl ?? "worker" : "https://self-hosted.example";
   await waitFor(() => expect(setLocale).toHaveBeenCalledWith(endpoint, "fixture-project-key"));
+});
+
+it("disables Save when a managed deployment has no configured connection", () => {
+  render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <ProjectSettingsForm managed hasWorker={false} />
+    </NextIntlClientProvider>,
+  );
+  expect(screen.getByText("No Memoia connection is configured.")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("KEY"), { target: { value: "fixture-project-key" } });
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(true);
+  expect(setLocale).not.toHaveBeenCalled();
 });

@@ -115,7 +115,9 @@ try {
   }
   const settings = await request(`${origin}/settings`);
   assert.equal(settings.status, 200, "settings page");
-  assert.match(await settings.text(), /<option value="worker"/, "bound Worker is offered");
+  const settingsHtml = await settings.text();
+  assert.match(settingsHtml, /id="memoia-connection"[^>]*>Memoia Worker<\/p>/, "bound Worker is shown as a fixed connection");
+  assert.doesNotMatch(settingsHtml, /<(?:select|input) [^>]*(?:id|name)="url"/, "fixed connection is not editable");
   assert.equal((await request(`${origin}/`)).status, 200, "root page");
   assert.equal((await request(`${origin}/api/memobase/usage`)).status, 401, "unauthenticated usage");
   assert.equal((await request(`${origin}/api/chat`, { method: "POST", headers: { origin: "https://other.invalid" } })).status, 403, "cross-origin mutation");
