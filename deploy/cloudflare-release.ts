@@ -5,7 +5,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const worker = "luvel-memoia-inspector-test";
-const memoiaOrigin = "https://test-memoia.luvel.app";
 const memoiaWorker = "luvel-memoia-test";
 type AccessApp = { id: string; domain?: string; self_hosted_domains?: string[]; type?: string; destinations?: Array<{ type?: string; uri?: string; worker_id?: string; overrides?: unknown[] }> };
 type Binding = { name?: string; type?: string; service?: string; environment?: string; entrypoint?: string; text?: string };
@@ -19,16 +18,19 @@ function hostMatches(pattern: string | undefined, host: string) {
   return new RegExp(`^${escaped}$`).test(host.toLowerCase());
 }
 
-function verifyMemoiaBindings(bindings: Binding[] | undefined, scope: string) {
+function verifyMemoiaBindings(bindings: Binding[] | undefined, scope: string, allowedHttpOrigin: string | undefined) {
   const [service, duplicateService] = bindings?.filter(b => b.name === "MEMOIA") ?? [];
   // Cloudflare reports the named Worker's default service environment as production.
   if (!service || duplicateService || service.type !== "service" || service.service !== memoiaWorker
     || (service.environment !== undefined && service.environment !== "production") || service.entrypoint) {
     throw new Error(`${scope} MEMOIA binding does not match Test target`);
   }
-  const [origin, duplicateOrigin] = bindings?.filter(b => b.name === "MEMOIA_BINDING_ORIGIN") ?? [];
-  if (!origin || duplicateOrigin || origin.type !== "plain_text" || origin.text !== memoiaOrigin) {
-    throw new Error(`${scope} MEMOIA_BINDING_ORIGIN does not match Test origin`);
+  const httpOrigins = bindings?.filter(b => b.name === "MEMOIA_HTTP_ORIGIN") ?? [];
+  if (httpOrigins.length && (
+    httpOrigins.length !== 1 || !allowedHttpOrigin ||
+    httpOrigins[0].type !== "plain_text" || httpOrigins[0].text !== allowedHttpOrigin
+  )) {
+    throw new Error(`${scope} MEMOIA_HTTP_ORIGIN is not the approved Test endpoint`);
   }
 }
 
@@ -37,6 +39,13 @@ export async function preflight(env: Env, transport: Fetch = fetch, uploadedVers
   if (!account || !token || !origin || !zone) throw new Error("Missing Cloudflare preflight configuration");
   const url = new URL(origin);
   if (url.protocol !== "https:" || url.origin !== origin) throw new Error("CF_TEST_PUBLIC_ORIGIN must be an HTTPS origin");
+  const allowedHttpOrigin = env.CF_TEST_MEMOIA_HTTP_ORIGIN || undefined;
+  if (allowedHttpOrigin) {
+    const httpUrl = new URL(allowedHttpOrigin);
+    if (httpUrl.protocol !== "https:" || httpUrl.origin !== allowedHttpOrigin) {
+      throw new Error("CF_TEST_MEMOIA_HTTP_ORIGIN must be an HTTPS origin");
+    }
+  }
   const api = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}`;
   async function get(path: string, base = api): Promise<unknown> {
     const response = await transport(`${base}${path}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -53,11 +62,11 @@ export async function preflight(env: Env, transport: Fetch = fetch, uploadedVers
   }
   const workerPath = `/workers/scripts/${worker}`;
   const settings = await get(`${workerPath}/settings`) as { bindings?: Binding[] };
-  verifyMemoiaBindings(settings.bindings, "Existing");
+  verifyMemoiaBindings(settings.bindings, "Existing", allowedHttpOrigin);
   if (uploadedVersionId) {
     const version = await get(`${workerPath}/versions/${uploadedVersionId}`) as { id?: string; resources?: { bindings?: Binding[] } };
     if (version.id !== uploadedVersionId) throw new Error("Uploaded version identity mismatch");
-    verifyMemoiaBindings(version.resources?.bindings, "Uploaded version");
+    verifyMemoiaBindings(version.resources?.bindings, "Uploaded version", allowedHttpOrigin);
   }
   const subdomain = await get(`/workers/scripts/${worker}/subdomain`) as { enabled?: boolean; previews_enabled?: boolean };
   if (subdomain.enabled !== false || subdomain.previews_enabled !== false) throw new Error("workers.dev and preview URLs must already be disabled");

@@ -10,7 +10,7 @@ Historical internal route and cookie names remain compatible with existing brows
 
 ## Source management
 
-User/profile/event/config/usage management and optional Playground share the fixed `@jianify/memoia@0.11.0` SDK from `vendor/`. Generated types and runtime validation come from the server OpenAPI. Missing evidence certainty/revision or usage counters/completeness fail SDK validation; the UI does not invent defaults. The selected project cookie supplies the same origin/token, with no second session or profile cache. Reads retain the Inspector read timeout; writes reuse the SDK’s normal processing budget instead of a short read-sized timeout. A lost write acknowledgement is still confirmed by its original operation key, never automatic body replay. Usage distinguishes unavailable statistics from zero; `usage_complete=false` labels the known subtotal as partial. Project changes abort/ignore previous requests instead of retaining the previous project's totals.
+User/profile/event/config/usage management and optional Playground share the fixed `@jianify/memoia@0.12.0` SDK from `vendor/`. Generated types and runtime validation come from the server OpenAPI. Missing evidence certainty/revision or usage counters/completeness fail SDK validation; the UI does not invent defaults. The selected project cookie supplies the same origin/token, with no second session or profile cache. Reads retain the Inspector read timeout; writes reuse the SDK’s normal processing budget instead of a short read-sized timeout. A lost write acknowledgement is still confirmed by its original operation key, never automatic body replay. Usage distinguishes unavailable statistics from zero; `usage_complete=false` labels the known subtotal as partial. Project changes abort/ignore previous requests instead of retaining the previous project's totals.
 
 Import and message-deletion `completed` receipts confirm Fact commits only. Fixed Blobs are sealed by explicit/timed flush (30s quiet / 120s maximum) into one user-scoped AgentLoop that atomically maintains Profiles and Events. The UI shows unbatched Blobs, flush identity, attempts, failure and original-operation recovery; pending or failed maintenance never reimports messages. Until flush succeeds, old derived text may remain readable. Event cards retain legacy text and show story time/location/keywords and an explicitly non-factual interpretation. These local contracts do not establish real model or browser acceptance.
 
@@ -61,6 +61,8 @@ Use Node.js 24 LTS and pnpm 10.12.4:
 pnpm install --frozen-lockfile
 pnpm dev
 ```
+
+Local Next.js development uses a Memoia URL. Set `NEXT_DEV_WRANGLER_ENV=test` to use the Cloudflare development bindings instead.
 
 The container image is built for the domain root path and same-origin API calls. An alternate Next.js `basePath` is a **build-time** choice and needs a different image; changing a server `.env` does not alter an already-built image.
 

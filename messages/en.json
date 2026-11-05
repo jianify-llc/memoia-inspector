@@ -256,7 +256,9 @@
   "settings": {
     "title": "Settings",
     "desc": "Enter your Memoia endpoint URL and project key",
-    "managedDesc": "Enter the project key for this Memoia environment.",
+    "managedDesc": "Select a Memoia connection and enter the project key.",
+    "connection": "Connection",
+    "worker": "Memoia Worker",
     "placeholder": "Type your message here.",
     "issue": "Issue",
     "idea": "Idea",

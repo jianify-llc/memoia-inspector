@@ -9,7 +9,7 @@ describe("Cloudflare configuration", () => {
     expect(config.preview_urls).toBe(false);
     expect(config.env.test.workers_dev).toBe(false);
     expect(config.env.test.preview_urls).toBe(false);
-    expect(config.env.test.vars.MEMOIA_BINDING_ORIGIN).toBe("https://test-memoia.luvel.app");
+    expect(config.env.test.vars?.MEMOIA_BINDING_ORIGIN).toBeUndefined();
     expect(config.env.test.services).toEqual([{ binding: "MEMOIA", service: "luvel-memoia-test" }]);
   });
 });

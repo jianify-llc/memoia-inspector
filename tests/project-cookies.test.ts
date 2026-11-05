@@ -59,17 +59,27 @@ describe("project and playground cookie ownership", () => {
   });
 
   it("rejects a cross-environment save and keeps the current project intact", async () => {
-    vi.stubEnv("MEMOIA_BINDING_ORIGIN", "https://test.example");
-    await setLocale("https://test.example/", "test-key");
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: vi.fn() } } } as never);
+    await setLocale("worker", "test-key");
     values.set("MEMOBASE_INSPECTOR_USER", "existing-user");
     await expect(setLocale("https://online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    expect(await getLocale()).toEqual(["https://test.example", "test-key"]);
+    expect(await getLocale()).toEqual(["worker", "test-key"]);
     expect(await getMemoiaUser()).toBe("existing-user");
   });
 
+  it("accepts the configured HTTP endpoint alongside the Worker", async () => {
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: vi.fn() } } } as never);
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://memoia-test.example");
+    await setLocale("https://memoia-test.example/", "test-key");
+    expect(await getLocale()).toEqual(["https://memoia-test.example", "test-key"]);
+    await expect(setLocale("https://memoia-online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
   it("treats an old cross-environment cookie as disconnected everywhere", async () => {
-    vi.stubEnv("MEMOIA_BINDING_ORIGIN", "https://test.example");
-    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://online.example|old-key");
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: vi.fn() } } } as never);
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://test.example");
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://test.example|old-key");
+    values.set("MEMOIA_INSPECTOR_CONNECTION", "https://online.example|other-key");
     values.set("MEMOBASE_INSPECTOR_USER", "old-user");
     const transport = vi.fn(); vi.stubGlobal("fetch", transport);
     expect(await getLocale()).toEqual([]);
@@ -80,13 +90,12 @@ describe("project and playground cookie ownership", () => {
   });
 
   it("routes the Test project SDK request only through the binding", async () => {
-    vi.stubEnv("MEMOIA_BINDING_ORIGIN", "https://test.example");
     const networkFetch = vi.fn(); vi.stubGlobal("fetch", networkFetch);
     const boundFetch = vi.fn().mockResolvedValue(Response.json({ usages: [] }));
     vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: boundFetch } } } as never);
-    await setLocale("https://test.example", "test-key");
+    await setLocale("worker", "test-key");
     expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(200);
-    expect(boundFetch).toHaveBeenCalledWith(expect.stringContaining("https://test.example/api/project/usage"), expect.objectContaining({
+    expect(boundFetch).toHaveBeenCalledWith(expect.stringContaining("https://memoia.invalid/api/project/usage"), expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer test-key" }),
     }));
     expect(networkFetch).not.toHaveBeenCalled();

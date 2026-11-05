@@ -6,11 +6,11 @@ Both targets run the same TypeScript Next.js application and fixed SDK. Docker u
 
 `wrangler.jsonc` has a generic `memoia-inspector` configuration and the Luvel Test instance `luvel-memoia-inspector-test`. It has no upstream routes, R2 bucket, tail Worker or incremental-cache service. The app's authenticated pages use dynamic rendering; no ISR cache, database or Queue is needed. Keep `workers_dev` and preview URLs disabled. Preserve whole-hostname Cloudflare Access protection, including API routes and Server Actions; project Bearer credentials are separate from the administrator identity.
 
-Hosted Inspector uses one `MEMOIA` Service Binding and a fixed HTTPS `MEMOIA_BINDING_ORIGIN`. Settings shows the origin read-only and asks for the project Key. The server rejects any other origin when saving settings or reading existing project cookies. A missing or failed binding stops the request. Self-hosted Inspector can leave `MEMOIA_BINDING_ORIGIN` unset to accept a user-entered HTTP(S) endpoint and Key. Both modes use the same SDK and original-operation recovery.
+Hosted Inspector lists the Worker when the `MEMOIA` Service Binding is present. It also lists an HTTPS option when `MEMOIA_HTTP_ORIGIN` is configured. The server accepts only these connections, and both use the project Key. For an Access-protected URL, set the two Service Token credentials on Inspector. For company Test, approve the optional HTTP origin via `CF_TEST_MEMOIA_HTTP_ORIGIN` in the GitHub Test environment. The release helper rejects any other HTTP origin. After updating from the old Worker URL settings, select the Worker and enter the project Key again.
 
 Cloudflare may return `environment: "production"` for that named Test Worker's default service environment. Preflight accepts this native default or an omitted environment; the target must still be exactly `luvel-memoia-test`, with no named RPC entrypoint. The platform's default environment label does not select an Online Worker.
 
-Luvel Test's Memoia backend has no public domain or route. `https://test-memoia.luvel.app` is the SDK's logical origin, reached through the `MEMOIA` Service Binding to `luvel-memoia-test`. Enter a Key from the intended Test project. Inspector is independently deployed at `https://test-memoia-inspector.jianify.dev`, protected across the whole hostname by the existing Access application. Its CI uses the `jianify.dev` zone and this public origin. Routing is maintained outside Wrangler publication. A standalone Docker Inspector needs a reachable HTTP(S) Memoia endpoint.
+Luvel Test's Memoia backend has no public domain or route. Select the Worker to reach `luvel-memoia-test` through the existing `MEMOIA` Service Binding and enter a Key from the intended Test project. Inspector is independently deployed at `https://test-memoia-inspector.jianify.dev`, protected across the whole hostname by the existing Access application. Its CI uses the `jianify.dev` zone and this public origin. Routing is maintained outside Wrangler publication. A standalone Docker Inspector needs a reachable HTTP(S) Memoia endpoint.
 
 For local work, build and preview from an isolated copy without business `.env` or `.dev.vars` files. Next/OpenNext can read those files before Wrangler starts; an empty Wrangler env file alone is not enough. `pnpm ci:local --mode full` prepares such a copy automatically. Generic manual commands are:
 
@@ -34,6 +34,16 @@ Local acceptance must exercise the built OpenNext Worker in workerd, cookies and
 
 ## Docker / existing Test host
 
+For a self-hosted Inspector connecting to a Memoia hostname protected by Cloudflare Access, set the following runtime environment variables in the Inspector container:
+
+| Variable | Value |
+| --- | --- |
+| `MEMOIA_HTTP_ORIGIN` | The protected HTTPS origin, without a path or trailing slash |
+| `MEMOIA_ACCESS_CLIENT_ID` | The Client ID of the Access Service Token issued to this Inspector |
+| `MEMOIA_ACCESS_CLIENT_SECRET` | The Client Secret of that Service Token |
+
+For a protected hostname, configure an Access Service Auth policy for the whole hostname and allow the specific Service Token. Pass the variables through the container runtime, for example through the Compose `env_file`. Docker Settings accepts a URL and the existing project Key. It prefills the configured URL and sends the Access token from its server only when the URL matches that origin. [Cloudflare Service Tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+
 ## GitHub Organization and image ownership
 
 The source repository is `jianify-llc/memoia-inspector`; historical Test images remain in `ghcr.io/jianify/memoia-inspector`. Publishing uses `github.repository`, so new candidates target `ghcr.io/jianify-llc/memoia-inspector`. Confirm package linkage, repository Actions write access, and anonymous pulls: AMD64 for Test, AMD64/ARM64 for Online. Repository visibility does not establish package visibility.
@@ -55,7 +65,7 @@ The project URL/token entered in the UI are browser-session credentials. Inspect
 
 ## Daily update and recovery
 
-Source management uses the fixed SDK 0.11.0 and the single `/api` contract: source lists contain summaries; message IDs, input batches and evidence each load bounded pages on demand. Each collection advances its own offset, and only a returned null next-offset means exhaustion. The UI does not fetch the complete historical source automatically or treat the first page as complete. Paging is not a transaction snapshot; refresh after concurrent mutations. Missing pagination fields from an older backend fail validation, so deploy the matching Memoia API before this Inspector candidate. Playground now also requires the authenticated `/api/project/identity` receipt for cache isolation. Existing management writes, same-origin protection and explicit operation recovery are unchanged.
+Source management uses the fixed SDK 0.12.0 and the single `/api` contract: source lists contain summaries; message IDs, input batches and evidence each load bounded pages on demand. Each collection advances its own offset, and only a returned null next-offset means exhaustion. The UI does not fetch the complete historical source automatically or treat the first page as complete. Paging is not a transaction snapshot; refresh after concurrent mutations. Missing pagination fields from an older backend fail validation, so deploy the matching Memoia API before this Inspector candidate. Playground now also requires the authenticated `/api/project/identity` receipt for cache isolation. Existing management writes, same-origin protection and explicit operation recovery are unchanged.
 
 Import and message-deletion completion confirms Fact changes, not Profile/Event maintenance. Fixed Blobs are grouped by automatic or explicit flush, and one user-scoped Loop commits both derived layers together. Inspector displays pending/failed flush progress and recovers only the original failed operation; it never reimports completed input to repair derived memory. After message deletion, old derived text may remain readable until maintenance succeeds, without presenting its removed Fact links as valid evidence.
 

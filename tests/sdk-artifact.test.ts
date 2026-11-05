@@ -11,7 +11,7 @@ describe("frozen SDK artifact identity check", () => {
   it("accepts the installed package only when it matches the vendored artifact", () => {
     const result = spawnSync(process.execPath, ["--experimental-strip-types", script], { cwd: root, encoding: "utf8" });
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/SDK 0\.11\.0: OpenAPI sha256 [a-f0-9]{64}/);
+    expect(result.stdout).toMatch(/SDK 0\.12\.0: OpenAPI sha256 [a-f0-9]{64}/);
   });
 
   it("rejects a dependency pointing outside the reviewed fixed SDK artifact", () => {
@@ -33,10 +33,10 @@ describe("frozen SDK artifact identity check", () => {
       mkdirSync(resolve(fixture, "vendor"));
       mkdirSync(resolve(fixture, "payload/package/src/generated"), { recursive: true });
       copyFileSync(script, resolve(fixture, "scripts/check-memoia-sdk.ts"));
-      writeFileSync(resolve(fixture, "package.json"), JSON.stringify({ dependencies: { "@jianify/memoia": "file:vendor/jianify-memoia-0.11.0-0e56ea9a1e56.tgz" } }));
-      writeFileSync(resolve(fixture, "payload/package/package.json"), JSON.stringify({ name: "@jianify/memoia", version: "0.11.0" }));
-      writeFileSync(resolve(fixture, "payload/package/src/generated/manifest.json"), JSON.stringify({ sdkVersion: "0.11.0", openapiSha256: "a".repeat(64) }));
-      execFileSync("tar", ["-czf", resolve(fixture, "vendor/jianify-memoia-0.11.0-0e56ea9a1e56.tgz"), "-C", resolve(fixture, "payload"), "package"]);
+      writeFileSync(resolve(fixture, "package.json"), JSON.stringify({ dependencies: { "@jianify/memoia": "file:vendor/jianify-memoia-0.12.0-0e56ea9a1e56.tgz" } }));
+      writeFileSync(resolve(fixture, "payload/package/package.json"), JSON.stringify({ name: "@jianify/memoia", version: "0.12.0" }));
+      writeFileSync(resolve(fixture, "payload/package/src/generated/manifest.json"), JSON.stringify({ sdkVersion: "0.12.0", openapiSha256: "a".repeat(64) }));
+      execFileSync("tar", ["-czf", resolve(fixture, "vendor/jianify-memoia-0.12.0-0e56ea9a1e56.tgz"), "-C", resolve(fixture, "payload"), "package"]);
       const result = spawnSync(process.execPath, ["--experimental-strip-types", resolve(fixture, "scripts/check-memoia-sdk.ts")], { encoding: "utf8" });
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("Unreviewed or missing SDK protocol/version identity");

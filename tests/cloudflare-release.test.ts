@@ -7,14 +7,13 @@ const sha = "a".repeat(40);
 const id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const env = { ...process.env, GITHUB_SHA: sha, GITHUB_REF: "refs/heads/test", CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "fixture", CF_TEST_ZONE_ID: "zone", CF_TEST_PUBLIC_ORIGIN: "https://inspector.example.com" };
 
-function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number>; serviceEnvironment?: string | null; service?: string; entrypoint?: string; origin?: string | null; duplicateService?: boolean; uploadedService?: string; uploadedOrigin?: string | null } = {}) {
+function mockApi(options: { bypass?: boolean; relatedPath?: boolean; emptyPolicies?: boolean; accessStatus?: number; appInfo?: Record<string, number>; policyInfo?: Record<string, number>; serviceEnvironment?: string | null; service?: string; entrypoint?: string; duplicateService?: boolean; uploadedService?: string; uploadedHttpOrigin?: string } = {}) {
   const bindings = (uploaded: boolean) => {
     const service = { name: "MEMOIA", type: "service", service: (uploaded ? options.uploadedService : options.service) ?? "luvel-memoia-test", ...(options.serviceEnvironment === null ? {} : { environment: options.serviceEnvironment ?? "production" }), ...(options.entrypoint ? { entrypoint: options.entrypoint } : {}) };
-    const origin = uploaded ? options.uploadedOrigin : options.origin;
     return [
       service,
       ...(options.duplicateService ? [service] : []),
-      ...(origin === null ? [] : [{ name: "MEMOIA_BINDING_ORIGIN", type: "plain_text", text: origin ?? "https://test-memoia.luvel.app" }]),
+      ...(uploaded && options.uploadedHttpOrigin ? [{ name: "MEMOIA_HTTP_ORIGIN", type: "plain_text", text: options.uploadedHttpOrigin }] : []),
     ];
   };
   return vi.fn(async (input: RequestInfo | URL) => {
@@ -72,14 +71,19 @@ describe("Cloudflare Test release", () => {
     await expect(preflight(env, mockApi({ bypass: true }))).rejects.toThrow("authentication");
     await expect(preflight(env, mockApi({ relatedPath: true }))).rejects.toThrow("overlapping");
   });
+  it("requires separate Test approval for an uploaded HTTP endpoint", async () => {
+    const uploadedHttpOrigin = "https://test-memoia.luvel.app";
+    const transport = mockApi({ uploadedHttpOrigin });
+    await expect(preflight(env, transport, id)).rejects.toThrow("not the approved Test endpoint");
+    await expect(preflight({ ...env, CF_TEST_MEMOIA_HTTP_ORIGIN: uploadedHttpOrigin }, transport, id)).resolves.toBeUndefined();
+    await expect(preflight({ ...env, CF_TEST_MEMOIA_HTTP_ORIGIN: uploadedHttpOrigin }, mockApi({ uploadedHttpOrigin: "https://memoia-online.example" }), id)).rejects.toThrow("not the approved Test endpoint");
+  });
   it("accepts only the Test Worker's default HTTP service environment", async () => {
     await expect(preflight(env, mockApi({ serviceEnvironment: null }))).resolves.toBeUndefined();
     await expect(preflight(env, mockApi({ serviceEnvironment: "staging" }))).rejects.toThrow("binding");
     await expect(preflight(env, mockApi({ service: "memoia-online" }))).rejects.toThrow("binding");
     await expect(preflight(env, mockApi({ entrypoint: "Admin" }))).rejects.toThrow("binding");
     await expect(preflight(env, mockApi({ duplicateService: true }))).rejects.toThrow("binding");
-    await expect(preflight(env, mockApi({ origin: null }))).rejects.toThrow("Test origin");
-    await expect(preflight(env, mockApi({ origin: "https://memoia.luvel.app" }))).rejects.toThrow("Test origin");
   });
   it("fails closed for missing protection, empty policies or unreadable and incomplete Access state", async () => {
     await expect(preflight({ ...env, CF_TEST_PUBLIC_ORIGIN: "https://other.example.com" }, mockApi())).rejects.toThrow("matching Access application");
@@ -104,7 +108,7 @@ describe("Cloudflare Test release", () => {
     expect(wrangler[0]).toContain("--keep-vars");
     expect(wrangler.every(c => c.includes("--env-file"))).toBe(true);
   });
-  it.each([{ uploadedService: "memoia-online" }, { uploadedOrigin: null }, { uploadedOrigin: "https://memoia.luvel.app" }])(
+  it.each([{ uploadedService: "memoia-online" }, { uploadedHttpOrigin: "https://memoia.luvel.app" }])(
     "does not activate an uploaded version with a wrong or missing Memoia binding: %j",
     async options => {
       const { run, commands } = fakeRunner([sha]);

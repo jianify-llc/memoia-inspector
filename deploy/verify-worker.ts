@@ -43,10 +43,12 @@ try {
     assets: { directory: string; binding: string };
   };
   const localConfig = resolve(directory, "wrangler.json");
+  const fixtureConfig = resolve(directory, "wrangler-fixture.json");
   writeFileSync(localConfig, JSON.stringify({
     name: source.name, main: resolve(source.main), compatibility_date: source.compatibility_date,
     compatibility_flags: source.compatibility_flags,
     assets: { ...source.assets, directory: resolve(source.assets.directory) },
+    services: [{ binding: "MEMOIA", service: "memoia-fixture" }],
     workers_dev: false, preview_urls: false,
   }), { flag: "wx" });
   const data = { usages: [{ date: "2026-10-09", total_input_token: 10, total_output_token: 5, total_insert: 0, total_success_insert: 0, usage_complete: false }] };
@@ -64,13 +66,24 @@ try {
   await close(reservation);
   const origin = `http://127.0.0.1:${port}`;
   const fixtureOrigin = `http://127.0.0.1:${fixturePort}`;
+  const fixtureWorker = resolve(directory, "memoia-fixture.mjs");
+  writeFileSync(fixtureWorker, `
+    export default { fetch(request) {
+      const { pathname, search } = new URL(request.url);
+      return fetch(new Request(${JSON.stringify(fixtureOrigin)} + pathname + search, request));
+    }};
+  `, { flag: "wx" });
+  writeFileSync(fixtureConfig, JSON.stringify({
+    name: "memoia-fixture", main: fixtureWorker, compatibility_date: source.compatibility_date,
+    workers_dev: false, preview_urls: false,
+  }), { flag: "wx" });
   // Pass only process essentials; no credentials, model configuration, or proxy variables.
   const childEnv: NodeJS.ProcessEnv = {
     PATH: process.env.PATH, HOME: directory, XDG_CONFIG_HOME: directory, TMPDIR: directory,
     NODE_ENV: "production", NEXTJS_ENV: "production", CI: "true",
     CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", WRANGLER_SEND_METRICS: "false", WRANGLER_HIDE_BANNER: "true",
   };
-  child = spawn(resolve("node_modules/.bin/wrangler"), ["dev", "--local", "--config", localConfig, "--ip", "127.0.0.1", "--port", String(port), "--env-file", emptyEnv, "--persist-to", resolve(directory, "state"), "--show-interactive-dev-session=false", "--log-level", "error"], {
+  child = spawn(resolve("node_modules/.bin/wrangler"), ["dev", "--local", "--config", localConfig, "--config", fixtureConfig, "--ip", "127.0.0.1", "--port", String(port), "--env-file", emptyEnv, "--persist-to", resolve(directory, "state"), "--show-interactive-dev-session=false", "--log-level", "error"], {
     env: childEnv, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
   });
   childDone = new Promise<void>(ok => {
@@ -100,7 +113,9 @@ try {
       .replace(/https?:\/\/[^\s"']+/gi, "[url]");
     throw new Error(`Local Worker did not become ready; startup diagnostics:\n${safeLog || "(no output)"}`);
   }
-  assert.equal((await request(`${origin}/settings`)).status, 200, "settings page");
+  const settings = await request(`${origin}/settings`);
+  assert.equal(settings.status, 200, "settings page");
+  assert.match(await settings.text(), /<option value="worker"/, "bound Worker is offered");
   assert.equal((await request(`${origin}/`)).status, 200, "root page");
   assert.equal((await request(`${origin}/api/memobase/usage`)).status, 401, "unauthenticated usage");
   assert.equal((await request(`${origin}/api/chat`, { method: "POST", headers: { origin: "https://other.invalid" } })).status, 403, "cross-origin mutation");
@@ -108,7 +123,9 @@ try {
   const chat = await request(`${origin}/api/chat`);
   assert.equal((await chat.json() as { enabled?: boolean }).enabled, false);
   assert.match(chat.headers.get("cache-control") ?? "", /no-store/i);
-  const cookie = `MEMOBASE_INSPECTOR_LOCALE=${encodeURIComponent(`${fixtureOrigin}|fixture-only`)}`;
+  const oldCookie = `MEMOBASE_INSPECTOR_LOCALE=${encodeURIComponent(`${fixtureOrigin}|fixture-only`)}`;
+  assert.equal((await request(`${origin}/api/memobase/usage`, { headers: { cookie: oldCookie } })).status, 401, "old Worker settings");
+  const cookie = `MEMOIA_INSPECTOR_CONNECTION=${encodeURIComponent("worker|fixture-only")}`;
   const usage = await request(`${origin}/api/memobase/usage?last_days=1`, { headers: { cookie } });
   assert.equal(usage.status, 200, "fixture usage status");
   assert.deepEqual((await usage.json() as { data: unknown }).data, data);

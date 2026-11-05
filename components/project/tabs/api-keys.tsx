@@ -14,6 +14,7 @@ import { Project } from "@/types";
 
 export default function ApiKeys({ project }: { project: Project }) {
   const t = useTranslations("project.apiKeys");
+  const settings = useTranslations("settings");
   const [showToken, setShowToken] = useState(false);
 
   return (
@@ -21,11 +22,11 @@ export default function ApiKeys({ project }: { project: Project }) {
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">URL</p>
-            <CopyButton textToCopy={project?.endpoint_url || ""} />
+            <p className="text-sm font-medium">{project.endpoint_url === "worker" ? settings("connection") : "URL"}</p>
+            {project.endpoint_url !== "worker" && <CopyButton textToCopy={project.endpoint_url} />}
           </div>
           <p className="text-sm bg-muted/50 p-2 rounded-md">
-            {project?.endpoint_url}
+            {project.endpoint_url === "worker" ? settings("worker") : project.endpoint_url}
           </p>
         </div>
 
