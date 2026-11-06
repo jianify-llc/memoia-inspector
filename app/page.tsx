@@ -6,10 +6,9 @@ import { useRouter } from "next/navigation";
 
 import { Project } from "@/types";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useProjectSection } from "@/components/project/sections";
 import ApiKeys from "@/components/project/tabs/api-keys";
 import Users from "@/components/project/tabs/users";
 import Usage from "@/components/project/tabs/usage";
@@ -25,6 +24,7 @@ import { getConfig } from "@/api/models/memobase";
 export default function ProjectPage() {
   const router = useRouter();
   const t = useTranslations("project");
+  const section = useProjectSection();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
@@ -80,46 +80,17 @@ export default function ProjectPage() {
           <Button onClick={() => void loadProject()}>{t("retry")}</Button>
         </div>
       ) : (
-        <>
-          <Tabs defaultValue="apiKeys" className="w-full">
-            <div className="flex items-center justify-between">
-              <TabsList>
-                <TabsTrigger value="apiKeys">{t("tabs.apiKeys")}</TabsTrigger>
-                <TabsTrigger value="users">{t("tabs.users")}</TabsTrigger>
-                <TabsTrigger value="usage">{t("tabs.usage")}</TabsTrigger>
-                <TabsTrigger value="config">{t("tabs.config")}</TabsTrigger>
-                <TabsTrigger value="projectAdmin">{t("tabs.projectAdmin")}</TabsTrigger>
-                <TabsTrigger value="playground">
-                  {t("tabs.playground")}
-                  <Badge
-                    variant="secondary"
-                    className="bg-blue-500 text-white dark:bg-blue-600"
-                  >
-                    {"New"}
-                  </Badge>
-                </TabsTrigger>
-              </TabsList>
-            </div>
-            <TabsContent value="apiKeys">
-              <ApiKeys project={project!} />
-            </TabsContent>
-            <TabsContent value="users">
-              <Users project={project} />
-            </TabsContent>
-            <TabsContent value="usage">
-              <Usage project={project} />
-            </TabsContent>
-            <TabsContent value="config">
-              <Config project={project} onRefresh={() => fetchProject()} />
-            </TabsContent>
-            <TabsContent value="projectAdmin">
-              <ProjectAdmin />
-            </TabsContent>
-            <TabsContent value="playground">
-              <Playground key={project.endpoint_url + "|" + project.endpoint_token} project={project} />
-            </TabsContent>
-          </Tabs>
-        </>
+        <section className="min-w-0 space-y-4" aria-labelledby="project-section-title">
+          <h1 id="project-section-title" className="text-xl font-semibold">{t(`tabs.${section.id}`)}</h1>
+          {section.id === "apiKeys" && <ApiKeys project={project} />}
+          {section.id === "users" && <Users project={project} />}
+          {section.id === "usage" && <Usage project={project} />}
+          {section.id === "config" && <Config project={project} onRefresh={fetchProject} />}
+          {section.id === "projectAdmin" && <ProjectAdmin />}
+          {section.id === "playground" && (
+            <Playground key={project.endpoint_url + "|" + project.endpoint_token} project={project} />
+          )}
+        </section>
       )}
     </div>
   );

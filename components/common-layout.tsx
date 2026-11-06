@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangSwitch } from "@/components/lang-switch";
-import { ProjectSwitch } from "@/components/project-switch";
 
 export default function RootLayout({
   children,
@@ -25,7 +24,6 @@ export default function RootLayout({
             <div className="flex-1" />
             <ThemeToggle />
             <LangSwitch />
-            <ProjectSwitch />
           </div>
         </header>
         {children}

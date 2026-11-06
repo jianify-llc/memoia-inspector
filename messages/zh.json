@@ -200,6 +200,7 @@
     "manualRecovery": "已停止自动重试；修复原因后可显式恢复原 flush"
   },
   "navigation": {
+    "project": "项目",
     "docs": "文档",
     "playground": "演示",
     "github": "Github",

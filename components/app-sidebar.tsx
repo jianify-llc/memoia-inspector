@@ -1,40 +1,33 @@
 "use client";
 
-import * as React from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, type ComponentProps } from "react";
+import { ArrowUpRight, BookText, Github } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import {
   Sidebar,
   SidebarContent,
-  SidebarGroup,
+  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail,
+  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { NavMain } from "@/components/nav-main";
+import { ProjectSwitch } from "@/components/project-switch";
 
 import Image from "next/image";
 import Link from "next/link";
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const pathname = usePathname();
+const resources = [
+  { label: "github", href: "https://github.com/jianify-llc/memoia-inspector", icon: Github },
+  { label: "docs", href: "https://github.com/jianify-llc/memoia/blob/main/docs/api.md", icon: BookText },
+] as const;
 
-  const data = {
-    navMain: [] as {
-      title: string;
-      url: string;
-      icon?: React.ElementType;
-      items?: {
-        title: string;
-        url: string;
-      }[];
-    }[],
-  };
+export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
+  const t = useTranslations("navigation");
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -51,46 +44,36 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   height={38}
                   priority
                 />
-                <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-semibold">Memoia</span>
-                  <span className=""></span>
-                </div>
+                <span className="font-semibold">Memoia</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <NavMain />
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu>
-            {data.navMain.map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton asChild isActive={pathname === item.url}>
-                  <Link href={item.url} className="font-medium">
-                    {item.icon && <item.icon />}
-                    {item.title}
-                  </Link>
-                </SidebarMenuButton>
-                {item.items?.length ? (
-                  <SidebarMenuSub>
-                    {item.items.map((subItem) => (
-                      <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton
-                          asChild
-                          isActive={pathname === subItem.url}
-                        >
-                          <Link href={subItem.url}>{subItem.title}</Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    ))}
-                  </SidebarMenuSub>
-                ) : null}
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        <Suspense fallback={null}>
+          <NavMain />
+        </Suspense>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem><ProjectSwitch /></SidebarMenuItem>
+        </SidebarMenu>
+        <SidebarSeparator />
+        <SidebarMenu>
+          {resources.map((item) => (
+            <SidebarMenuItem key={item.label}>
+              <SidebarMenuButton asChild tooltip={t(item.label)}>
+                <Link href={item.href} target="_blank" rel="noreferrer">
+                  <item.icon />
+                  <span>{t(item.label)}</span>
+                  <ArrowUpRight className="ml-auto opacity-50 group-data-[collapsible=icon]:hidden" />
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );

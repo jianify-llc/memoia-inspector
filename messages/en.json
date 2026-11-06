@@ -200,6 +200,7 @@
     "manualRecovery": "Automatic retries stopped; fix the cause, then resume this flush explicitly"
   },
   "navigation": {
+    "project": "Project",
     "docs": "Docs",
     "playground": "Playground",
     "github": "Github",

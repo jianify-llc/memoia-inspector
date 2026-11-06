@@ -2,6 +2,8 @@
 
 Memoia Inspector is the TypeScript administration app for Memoia. It provides project switching, Fact/Profile/Event management, source evidence, operation recovery and an optional chat Playground. All management pages and Playground use one `@jianify/memoia` SDK and the server’s unversioned `/api` contract.
 
+The sidebar links to Auth, Users, Usages, Config, Projects & permissions and Playground. Each section has a shareable URL that opens the same view after a refresh. Switch Project is at the bottom of the sidebar.
+
 The source is MIT-licensed; see [LICENSE](LICENSE). Memoia server itself is a separate Apache-2.0 project. Deployment of this admin UI should be protected by an access layer: the project token entered in the UI is still required to access a Memoia project, but is not a substitute for authenticating the human administrator.
 
 One Next.js application supports both Docker (Node standalone) and Cloudflare Workers (OpenNext with static assets). Neither deployment needs its own database, Redis or task queue. The original project was [Memobase Inspector](https://github.com/memodb-io/memobase-inspector); its MIT copyright notice remains in LICENSE. GitHub fork-network membership is separate repository metadata, not changed by these source changes.
@@ -33,7 +35,7 @@ The SDK sends every mutation once; only reads receive automatic retries. Write 5
 
 Deploy server and consumers together for this breaking API switch; no version aliases remain. Local tests/builds do not prove source withdrawal, Cloudflare Access isolation, real model calls, or coordinated recovery; those are separate Test acceptance steps.
 
-The additional **Projects & permissions** tab reads current projects and scoped keys with bounded pagination. Root credentials can create/suspend projects; project administrators can issue/revoke their own `read`/`write`/`admin` keys, and the backend enforces these boundaries. Newly issued tokens are shown once in the mounted view, never placed in a Cookie or local storage. Unknown mutations are not repeated automatically: refresh current server state before continuing. Access changes require confirmation; existing project switching and legacy-token display stay unchanged. Legacy token rotation is intentionally not offered as a UI button.
+The **Projects & permissions** view reads current projects and scoped keys with bounded pagination. Root credentials can create/suspend projects; project administrators can issue/revoke their own `read`/`write`/`admin` keys, and the backend enforces these boundaries. Newly issued tokens are shown once in the mounted view, never placed in a Cookie or local storage. Unknown mutations are not repeated automatically: refresh current server state before continuing. Access changes require confirmation; existing project switching and legacy-token display stay unchanged. Legacy token rotation is intentionally not offered as a UI button.
 
 ## Development
 
