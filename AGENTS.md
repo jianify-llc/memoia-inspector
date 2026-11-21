@@ -1,5 +1,7 @@
 # Memoia Inspector Agent 入口
 
+代码审查、测试和长任务交接遵循 [Jianify 开发规范](https://github.com/jianify-llc/Jianify-LLC/blob/main/docs/engineering/development.md)。
+
 模型请求组装与缓存遵循 [公司 Prompt／缓存合同](https://github.com/jianify-llc/Jianify-LLC/blob/main/docs/engineering/llm-prompt-cache.md)；Playground 的 SDK/流适配差异记录在 README，不复制另一套公司规则。
 
 分支开发与发布遵循 [Jianify 公司统一规范](https://github.com/jianify-llc/Jianify-llc/blob/main/docs/engineering/branch-release.md)：从最新 `main` 创建 `feature/*`，先合入 `test` 通过真实测试环境验收，再将同一功能合入 `release`。版本 tag 从 `release` 创建；Online 部署须由 `jianify` 在 GitHub `online` Environment 人工审批，线上验收后再把 `release` 合入 `main`。禁止直接在 `main` 或 `test` 开发，不把 `test` 整体合入 `release`。
