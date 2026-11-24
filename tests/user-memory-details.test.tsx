@@ -30,7 +30,7 @@ import Users from "@/components/project/tabs/users";
 const profile = (content: string) => ({ id: content, content, topic: "interest", sub_topic: content, created_at: "2026-10-05T00:00:00Z" });
 const oldMemories = { profiles: [profile("hiking"), profile("pottery")], events: [{ id: "hiking" }, { id: "pottery" }] };
 const newMemories = { profiles: [profile("pottery")], events: [{ id: "pottery" }] };
-const user = (count: number) => ({ id: "user-1", profile_count: count, event_count: count, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" });
+const user = (count: number) => ({ id: "user-1", project_id: "project-a", profile_count: count, event_count: count, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" });
 const completed = { operation_id: "op-1", source_id: "source-1", blob_id: null, status: "completed", result: { profile_ids: [], event_ids: [] }, error: null };
 const accepted = { ...completed, status: "processing", result: null };
 const response = <T,>(data: T) => ({ code: 0, message: "OK", data });
@@ -61,7 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mount = () => render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-  <Users project={{ endpoint_url: "https://memoia.example", endpoint_token: "fixture-token", config_yaml: "" }} />
+  <Users project={{ endpoint_url: "https://memoia.example", endpoint_token: "fixture-token", config_yaml: "", project_id: "project-a" }} />
 </NextIntlClientProvider>);
 const tab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0, ctrlKey: false });
 const openDetails = async () => {

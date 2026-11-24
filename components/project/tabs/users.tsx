@@ -46,7 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { JsonDownload } from "@/components/json-download";
 
-import { ProjectUser } from "@/api/models/memobase";
+import { ProjectUser, type UserMemoryScope } from "@/api/models/memobase";
 import { ProjectUsersOrderBy } from "@/types";
 import { deleteUserByUid, getProjectUserMemories } from "@/api/models/memobase";
 import { getProjectUsers } from "@/api/models/memobase";
@@ -74,7 +74,8 @@ export default function Users({ project }: { project: Project }) {
   const [page, setPage] = useState(1);
 
   const [open, setOpen] = useState(false);
-  const [memoriesUserId, setMemoriesUserId] = useState<string | null>(null);
+  const [memoryScope, setMemoryScope] = useState<UserMemoryScope | null>(null);
+  const memoriesUserId = memoryScope?.userId;
   const [downloadingUserId, setDownloadingUserId] = useState<string | null>(null);
   const [invalidUserIds, setInvalidUserIds] = useState<string[]>([]);
   const [mutations, setMutations] = useState<Record<string, ProvenanceMutation>>({});
@@ -107,12 +108,13 @@ export default function Users({ project }: { project: Project }) {
   const fetchUsers = useCallback(async () => {
     if (!mounted.current || currentProject.current.endpoint_url !== project.endpoint_url ||
       currentProject.current.endpoint_token !== project.endpoint_token) return false;
+    if (!project.project_id) { setLoading(false); toast.error(t("getUsersFailed")); return false; }
     usersRequest.current?.abort();
     const controller = new AbortController();
     usersRequest.current = controller;
     try {
       const res = await getProjectUsers(
-        "",
+        { endpoint: project.endpoint_url, projectId: project.project_id },
         debouncedSearch,
         orderBy,
         orderDesc,
@@ -137,15 +139,16 @@ export default function Users({ project }: { project: Project }) {
       if (!controller.signal.aborted) setLoading(false);
     }
     return false;
-  }, [limit, orderBy, orderDesc, page, router, debouncedSearch, t, project.endpoint_url, project.endpoint_token]);
+  }, [limit, orderBy, orderDesc, page, router, debouncedSearch, t, project.endpoint_url, project.endpoint_token, project.project_id]);
 
-  const downloadMemories = async (uid: string) => {
+  const downloadMemories = async (user: ProjectUser) => {
+    const uid = user.id;
     if (invalidUserIds.includes(uid)) return;
     const controller = new AbortController();
     downloads.current.set(controller, uid);
     setDownloadingUserId(uid);
     try {
-      const res = await getProjectUserMemories(uid, controller.signal);
+      const res = await getProjectUserMemories({ userId: uid, projectId: user.project_id, endpoint: project.endpoint_url }, controller.signal);
       if (controller.signal.aborted) return;
       if (res.code === 401) {
         router.push("/login");
@@ -195,7 +198,7 @@ export default function Users({ project }: { project: Project }) {
   useEffect(() => {
     const activeDownloads = downloads.current;
     setOpen(false);
-    setMemoriesUserId(null);
+    setMemoryScope(null);
     setInvalidUserIds([]);
     setMutations({});
     setUsers([]);
@@ -219,7 +222,7 @@ export default function Users({ project }: { project: Project }) {
           <SheetDescription>Assistant</SheetDescription>
         </SheetHeader>
 
-        {memoriesUserId ? <UserMemoryDetails key={memoriesUserId} userId={memoriesUserId} open={open}
+        {memoriesUserId && memoryScope ? <UserMemoryDetails key={`${memoryScope.endpoint}:${memoryScope.projectId}:${memoriesUserId}`} userId={memoriesUserId} scope={memoryScope} open={open}
           mutation={mutations[memoriesUserId] || EMPTY_MUTATION}
           setMutation={(update) => {
             if (!mounted.current || currentProject.current.endpoint_url !== project.endpoint_url ||
@@ -347,7 +350,7 @@ export default function Users({ project }: { project: Project }) {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            setMemoriesUserId(user.id);
+                            setMemoryScope({ userId: user.id, projectId: user.project_id, endpoint: project.endpoint_url });
                             setOpen(true);
                           }}
                         >
@@ -356,7 +359,7 @@ export default function Users({ project }: { project: Project }) {
                         <JsonDownload
                           fileName={`memoia-${user.id}.json`}
                           disabled={invalidUserIds.includes(user.id) || downloadingUserId === user.id}
-                          beforeEvent={() => downloadMemories(user.id)}
+                          beforeEvent={() => downloadMemories(user)}
                           trigger={
                             <Button
                               variant="outline"

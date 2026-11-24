@@ -48,8 +48,8 @@ const service = {
     return await request("GET", url, { params: data, headers, signal });
   },
 
-  async post<T = any>(url: string, data?: Record<string, any>): Promise<T> {
-    return await request("POST", url, { body: data });
+  async post<T = any>(url: string, data?: Record<string, any>, headers?: HeadersInit): Promise<T> {
+    return await request("POST", url, { body: data, headers });
   },
 
   async put<T = any>(url: string, data?: Record<string, any>): Promise<T> {

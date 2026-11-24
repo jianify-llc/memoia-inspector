@@ -16,7 +16,7 @@ import Config from "@/components/project/tabs/config";
 import Playground from "@/components/project/tabs/playground";
 import ProjectAdmin from "@/components/project/tabs/project-admin";
 
-import { getLocale } from "@/utils/memoia/client";
+import { getProjectContext } from "@/utils/memoia/client";
 
 import { toast } from "sonner";
 import { getConfig } from "@/api/models/memobase";
@@ -30,8 +30,8 @@ export default function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null);
 
   const fetchProject = useCallback(async () => {
-    const res = await getLocale();
-    if (res.length < 2) {
+    const res = await getProjectContext();
+    if (!res) {
       router.push("/settings");
       throw new Error("Project credentials are missing");
     }
@@ -42,8 +42,9 @@ export default function ProjectPage() {
     }
 
     setProject({
-      endpoint_url: res[0],
-      endpoint_token: res[1],
+      endpoint_url: res.endpoint,
+      endpoint_token: res.token,
+      project_id: res.projectId,
       config_yaml: config.data || "",
     });
   }, [router]);

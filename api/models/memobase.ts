@@ -88,8 +88,8 @@ export const deleteUser = (): Promise<Res<null>> =>
 export const deleteUserByUid = (uid: string): Promise<Res<null>> =>
   service.delete(`/api/memobase/user/${uid}`);
 
-export const getProjectUsers = (pid: string, search: string, order_by: string, order_desc: boolean, limit: number, offset: number, signal?: AbortSignal) => {
-  return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, undefined, signal);
+export const getProjectUsers = (scope: { endpoint: string; projectId: string }, search: string, order_by: string, order_desc: boolean, limit: number, offset: number, signal?: AbortSignal) => {
+  return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, { "x-memoia-endpoint": scope.endpoint, "x-memoia-project": scope.projectId }, signal);
 }
 
 export const getProjectUsage = (last_days: number = 7, signal?: AbortSignal) => {
@@ -107,6 +107,12 @@ export const updateConfig = (config: string): Promise<Res<null>> =>
     config,
   });
 
-export const getProjectUserMemories = (uid: string, signal?: AbortSignal) => {
-  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[], maintenance: MaintenanceStatus }>>(`/api/memobase/user/${uid}/memories`, undefined, undefined, signal);
+export type UserMemoryScope = { userId: string; projectId: string; endpoint: string };
+const scopeHeaders = (scope: UserMemoryScope) => ({ "x-memoia-project": scope.projectId, "x-memoia-endpoint": scope.endpoint });
+
+export const getProjectUserMemories = (scope: UserMemoryScope, signal?: AbortSignal) => {
+  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[], maintenance: MaintenanceStatus }>>(`/api/memobase/user/${encodeURIComponent(scope.userId)}/memories`, undefined, scopeHeaders(scope), signal);
 }
+
+export const manageProjectUserMemory = (scope: UserMemoryScope, data: Record<string, string>): Promise<Res<null>> =>
+  service.post(`/api/memobase/user/${encodeURIComponent(scope.userId)}/memories`, data, scopeHeaders(scope));

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { cookies } from "next/headers";
 import { GET as getUsage } from "@/app/api/memobase/usage/route";
-import { POST } from "@/app/api/memobase/user/route";
+import { GET as getUsers, POST } from "@/app/api/memobase/user/route";
+import { GET as getUserMemories, POST as manageUserMemory } from "@/app/api/memobase/user/[uid]/memories/route";
 import { memoiaClient, clearLocale, getLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
@@ -24,6 +25,44 @@ beforeEach(() => {
 });
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+describe("selected project and user memory", () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const params = { params: Promise.resolve({ uid: userId }) };
+  const request = (method: "GET" | "POST", endpoint = "https://one.example", project = "project-a") =>
+    new Request("https://inspector.example/api/memobase/user/example/memories", {
+      method, headers: { origin: "https://inspector.example", "content-type": "application/json", "x-memoia-endpoint": endpoint, "x-memoia-project": project },
+      ...(method === "POST" ? { body: JSON.stringify({ action: "addProfile", content: "value", topic: "t", sub_topic: "s" }) } : {}),
+    });
+
+  it("rejects a changed endpoint before calling another Memoia instance", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://two.example|fixture");
+    const transport = vi.fn(); vi.stubGlobal("fetch", transport);
+    expect((await getUserMemories(request("GET"), params)).status).toBe(409);
+    expect((await manageUserMemory(request("POST"), params)).status).toBe(409);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects another project with the same user id before reading or writing", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://one.example|fixture");
+    const transport = vi.fn().mockImplementation(async () => Response.json({ project_id: "project-b" })); vi.stubGlobal("fetch", transport);
+    expect((await getUserMemories(request("GET"), params)).status).toBe(409);
+    expect((await manageUserMemory(request("POST"), params)).status).toBe(409);
+    expect((await getUsers(request("GET"))).status).toBe(409);
+    expect(transport).toHaveBeenCalledTimes(3);
+    expect(transport.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("uses the selected user after confirming the project", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://one.example|fixture");
+    const transport = vi.fn().mockResolvedValueOnce(Response.json({ project_id: "project-a" }))
+      .mockResolvedValueOnce(Response.json({ id: "22222222-2222-4222-8222-222222222222" }, { status: 201 }));
+    vi.stubGlobal("fetch", transport);
+    expect((await manageUserMemory(request("POST"), params)).status).toBe(200);
+    expect(String(transport.mock.calls[1][0])).toContain(`/api/users/${userId}/profiles`);
+    expect(transport.mock.calls[1][1].method).toBe("POST");
+  });
+});
 
 describe("project and playground cookie ownership", () => {
   it("clears the old user when switching projects", async () => {

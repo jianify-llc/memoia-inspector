@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import type { UserEvent, UserProfile } from "@/api/models/memobase";
-import { getProjectUserMemories } from "@/api/models/memobase";
+import type { UserEvent, UserProfile, UserMemoryScope } from "@/api/models/memobase";
+import { getProjectUserMemories, manageProjectUserMemory } from "@/api/models/memobase";
 import { SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserMemory } from "@/components/user-memory";
@@ -13,8 +13,9 @@ import { hasUnconfirmedMutation, type ProvenanceMutation } from "@/lib/operation
 import type { MaintenanceStatus } from "@jianify/memoia";
 
 /** Detail reads refresh on open; operation state belongs to the project Users view. */
-export function UserMemoryDetails({ userId, open, mutation, setMutation, onInvalidate, onResolved }: {
+export function UserMemoryDetails({ userId, scope, open, mutation, setMutation, onInvalidate, onResolved }: {
   userId: string;
+  scope: UserMemoryScope;
   open: boolean;
   mutation: ProvenanceMutation;
   setMutation: Dispatch<SetStateAction<ProvenanceMutation>>;
@@ -42,7 +43,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
     setLoading(true);
     setError(false);
     try {
-      const response = await getProjectUserMemories(userId, controller.signal);
+      const response = await getProjectUserMemories(scope, controller.signal);
       if (controller.signal.aborted) return;
       if (response.code === 401) router.push("/login");
       if (response.code !== 0 || !response.data) { setError(true); return; }
@@ -54,7 +55,7 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [userId, router]);
+  }, [router, scope]);
 
   useEffect(() => {
     if (!open || unresolved) return;
@@ -94,6 +95,10 @@ export function UserMemoryDetails({ userId, open, mutation, setMutation, onInval
                 events={events}
                 maintenance={maintenance}
                 profilesFold
+                canAdd
+                canEdit
+                canDelete
+                manage={(data) => manageProjectUserMemory(scope, data)}
                 onRefresh={async () => { await Promise.all([refresh(), onResolved(userId)]); }}
                 canDownload={!loading && !error && Boolean(profiles.length || events.length)}
                 downloadFileName={`memoia-${userId}.json`}

@@ -6,12 +6,12 @@ import { resolve, dirname } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const inspector = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const dependency = inspector.dependencies["@jianify/memoia"];
-if (dependency !== "file:vendor/jianify-memoia-0.12.0-1b1916a7e037.tgz") throw new Error("Inspector requires the reviewed fixed SDK tarball");
+if (dependency !== "file:vendor/jianify-memoia-0.12.0-12c695bdaeea.tgz") throw new Error("Inspector requires the reviewed fixed SDK tarball");
 const tarball = resolve(root, dependency.slice(5));
 const packed = (path: string) => execFileSync("tar", ["-xOf", tarball, `package/${path}`], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
 const packageInfo = JSON.parse(packed("package.json"));
 const manifest = JSON.parse(packed("src/generated/manifest.json"));
-if (packageInfo.name !== "@jianify/memoia" || packageInfo.version !== "0.12.0" || manifest.sdkVersion !== "0.12.0" || manifest.openapiSha256 !== "1b1916a7e03717956a496a9ace0d96741e9d68fb531258a506e82c7f1495b002") {
+if (packageInfo.name !== "@jianify/memoia" || packageInfo.version !== "0.12.0" || manifest.sdkVersion !== "0.12.0" || manifest.openapiSha256 !== "12c695bdaeea536d3050e1f38ec1786f04f8f250466b297fd0218a63c5fc7dae") {
   throw new Error("Unreviewed or missing SDK protocol/version identity");
 }
 const sdkRoot = resolve(dirname(fileURLToPath(import.meta.resolve("@jianify/memoia"))), "..");
