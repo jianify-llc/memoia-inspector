@@ -6,7 +6,7 @@ import { resolve, dirname } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const inspector = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const dependency = inspector.dependencies["@jianify/memoia"];
-if (dependency !== "file:vendor/jianify-memoia-0.12.0-12c695bdaeea.tgz") throw new Error("Inspector requires the reviewed fixed SDK tarball");
+if (dependency !== "file:vendor/jianify-memoia-0.12.0-f3594843173a.tgz") throw new Error("Inspector requires the reviewed fixed SDK tarball");
 const tarball = resolve(root, dependency.slice(5));
 const packed = (path: string) => execFileSync("tar", ["-xOf", tarball, `package/${path}`], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
 const packageInfo = JSON.parse(packed("package.json"));
