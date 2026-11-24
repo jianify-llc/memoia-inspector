@@ -17,7 +17,10 @@ import {
   getProfile,
   getEvent,
   getPlaygroundMaintenance,
+  getPlaygroundImportStatus,
+  getPlaygroundAppendStatus,
   insertMessages,
+  sealPlaygroundAppend,
   deleteUser,
   initializePlaygroundUser,
 } from "@/api/models/memobase";
@@ -30,6 +33,7 @@ import { retainReference } from "@/lib/playground-reference-client";
 
 export default function Playground({ project }: { project: Project }) {
   const t = useTranslations("project.playground");
+  const tProject = useTranslations("project");
   const [isLoading, setIsLoading] = useState(false);
   // 相同挂载的重复初始化共用身份；项目切换或显式新用户才分配新 ID。
   const initializationIdentity = useRef({ projectId: project.endpoint_url, id: crypto.randomUUID() });
@@ -40,11 +44,11 @@ export default function Playground({ project }: { project: Project }) {
   const lastUserRecordedAt = useRef<string>("");
   const references = useRef(new Map<string, string>());
   const mounted = useRef(true);
-  const chain = useRef({ sessionId: crypto.randomUUID(), requestId: "", receipt: null as string | null,
+  const chain = useRef({ sessionId: crypto.randomUUID(), requestId: "", receipt: null as string | null, writes: Promise.resolve(),
     project: project.endpoint_url, credential: project.endpoint_token });
   if (chain.current.project !== project.endpoint_url || chain.current.credential !== project.endpoint_token) {
     references.current = new Map();
-    chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null,
+    chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null, writes: Promise.resolve(),
       project: project.endpoint_url, credential: project.endpoint_token };
   }
   const chainSession = chain.current;
@@ -98,28 +102,68 @@ export default function Playground({ project }: { project: Project }) {
 
       const lastContent = message.content[message.content.length - 1];
       if (lastContent.type === "text") {
-        try {
-          const res = await insertMessages([
-            {
-              role: "user",
-              content: lastUserMessageRef.current,
-              created_at: lastUserRecordedAt.current,
-            },
-            {
-              role: "assistant",
-              content: lastContent.text,
-              created_at: message.createdAt.toISOString(),
-            },
-          ], message.id);
-          if (res.code !== 0) {
-            toast.error(res.message || t("insertRecordsFailed"));
+        const identity = { sessionId: chainSession.sessionId, chainReceipt: receipt.chain_receipt, idempotencyKey: message.id };
+        const messages = [
+          { role: "user" as const, content: lastUserMessageRef.current, created_at: lastUserRecordedAt.current },
+          { role: "assistant" as const, content: lastContent.text, created_at: message.createdAt.toISOString() },
+        ];
+        // Stage every completed turn immediately; only sealing waits for the prior Fact task.
+        const stage = async () => {
+          let result;
+          try {
+            result = await insertMessages(messages, identity);
+            if (result.message === "OUTCOME_UNKNOWN") result = await getPlaygroundAppendStatus(identity);
+          } catch { result = await getPlaygroundAppendStatus(identity); }
+          if (result.code !== 0 || !result.data) throw new Error("Playground append was not confirmed");
+          return result.data;
+        };
+        // Attach a rejection handler immediately even when an earlier seal is still running.
+        const staged = stage().then(value => ({ value }), error => ({ error }));
+        const save = async (retry = false) => {
+          const append = await staged;
+          if (!("value" in append) && !retry) throw append.error;
+          let appended;
+          if ("value" in append) appended = append.value;
+          else {
+            const existing = await getPlaygroundAppendStatus(identity);
+            if (existing.code === 0 && existing.data) appended = existing.data;
+            else if (existing.code === 404) appended = await stage();
+            else throw new Error("Playground append is still unknown");
+          }
+          let result = retry ? await getPlaygroundImportStatus(identity, appended.operation_id, true) : null;
+          if (!result || (retry && result.code === 404)) {
+            try {
+              result = await sealPlaygroundAppend(identity, appended.operation_id);
+              if (result.message === "OUTCOME_UNKNOWN") result = await getPlaygroundImportStatus(identity, appended.operation_id);
+            } catch { result = await getPlaygroundImportStatus(identity, appended.operation_id); }
+          }
+          if (result.code !== 0 || !result.data) throw new Error("Playground memory was not confirmed");
+          let operation = result.data;
+          const deadline = Date.now() + 90_000;
+          while (operation.status === "processing" && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const status = await getPlaygroundImportStatus(identity, appended.operation_id).catch(() => null);
+            if (status && [401, 403, 409, 410].includes(status.code)) throw new Error("Playground identity changed");
+            if (status?.code === 0 && status.data) operation = status.data;
+          }
+          if (operation.status === "failed") {
+            if (mounted.current && chain.current === chainSession) toast.error(operation.error?.code || t("insertRecordsFailed"));
             return;
           }
-
-          await refreshMemories();
-        } catch {
-          toast.error(t("insertRecordsFailed"));
-        }
+          if (operation.status !== "completed") throw new Error("Playground memory is still pending");
+          if (mounted.current && chain.current === chainSession) await refreshMemories();
+        };
+        const enqueue = (retry = false) => {
+          const previous = retry ? chainSession.writes.catch(() => {}) : chainSession.writes;
+          const current = previous.then(() => save(retry));
+          chainSession.writes = current;
+          return current.catch(() => {
+            if (mounted.current && chain.current === chainSession) {
+              toast.error(t("insertRecordsFailed"), { action: { label: tProject("retry"), onClick: () => void enqueue(true) } });
+            }
+          });
+        };
+        await enqueue();
       }
     },
   });
@@ -251,7 +295,7 @@ export default function Playground({ project }: { project: Project }) {
                 setEvents([]);
                 setMaintenance(null);
                 references.current = new Map();
-                chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null,
+                chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null, writes: Promise.resolve(),
                   project: project.endpoint_url, credential: project.endpoint_token };
                 runtime.thread.import({ messages: [] });
                 initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };

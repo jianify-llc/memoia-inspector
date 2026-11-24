@@ -1,11 +1,12 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const script = resolve(__dirname, "../scripts/check-memoia-sdk.ts");
 const root = resolve(__dirname, "..");
+const dependency: string = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).dependencies["@jianify/memoia"];
 
 describe("frozen SDK artifact identity check", () => {
   it("accepts the installed package only when it matches the vendored artifact", () => {
@@ -33,10 +34,10 @@ describe("frozen SDK artifact identity check", () => {
       mkdirSync(resolve(fixture, "vendor"));
       mkdirSync(resolve(fixture, "payload/package/src/generated"), { recursive: true });
       copyFileSync(script, resolve(fixture, "scripts/check-memoia-sdk.ts"));
-      writeFileSync(resolve(fixture, "package.json"), JSON.stringify({ dependencies: { "@jianify/memoia": "file:vendor/jianify-memoia-0.12.0-0e56ea9a1e56.tgz" } }));
+      writeFileSync(resolve(fixture, "package.json"), JSON.stringify({ dependencies: { "@jianify/memoia": dependency } }));
       writeFileSync(resolve(fixture, "payload/package/package.json"), JSON.stringify({ name: "@jianify/memoia", version: "0.12.0" }));
       writeFileSync(resolve(fixture, "payload/package/src/generated/manifest.json"), JSON.stringify({ sdkVersion: "0.12.0", openapiSha256: "a".repeat(64) }));
-      execFileSync("tar", ["-czf", resolve(fixture, "vendor/jianify-memoia-0.12.0-0e56ea9a1e56.tgz"), "-C", resolve(fixture, "payload"), "package"]);
+      execFileSync("tar", ["-czf", resolve(fixture, dependency.slice(5)), "-C", resolve(fixture, "payload"), "package"]);
       const result = spawnSync(process.execPath, ["--experimental-strip-types", resolve(fixture, "scripts/check-memoia-sdk.ts")], { encoding: "utf8" });
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("Unreviewed or missing SDK protocol/version identity");

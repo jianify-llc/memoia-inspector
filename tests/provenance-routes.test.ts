@@ -1,3 +1,4 @@
+vi.mock("@/lib/project-scope", () => ({ requestProjectScope: () => ({ endpoint: "https://memoia.example", projectId: "project-a" }) }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoiaError } from "@jianify/memoia";
 

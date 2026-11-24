@@ -48,20 +48,20 @@ const service = {
     return await request("GET", url, { params: data, headers, signal });
   },
 
-  async post<T = any>(url: string, data?: Record<string, any>): Promise<T> {
-    return await request("POST", url, { body: data });
+  async post<T = any>(url: string, data?: Record<string, any>, headers?: HeadersInit): Promise<T> {
+    return await request("POST", url, { body: data, headers });
   },
 
-  async put<T = any>(url: string, data?: Record<string, any>): Promise<T> {
-    return await request("PUT", url, { body: data });
+  async put<T = any>(url: string, data?: Record<string, any>, headers?: HeadersInit): Promise<T> {
+    return await request("PUT", url, { body: data, headers });
   },
 
   async patch<T = any>(url: string, data?: Record<string, any>): Promise<T> {
     return await request("PATCH", url, { body: data });
   },
 
-  async delete<T = any>(url: string, data?: object): Promise<T> {
-    return await request("DELETE", url, { params: data });
+  async delete<T = any>(url: string, data?: object, headers?: HeadersInit): Promise<T> {
+    return await request("DELETE", url, { params: data, headers });
   },
 };
 

@@ -1,3 +1,4 @@
+vi.mock("@/lib/project-scope", () => ({ requestProjectScope: () => ({ endpoint: "https://memoia.example", projectId: "project-a" }) }));
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";

@@ -2,6 +2,7 @@ import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
 import { memoiaClient } from "@/utils/memoia/client";
+import { requestProjectScope } from "@/lib/project-scope";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 
 /**
@@ -16,7 +17,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ uid: 
     return createApiError("Bad Request", 400);
   }
   try {
-    const client = await memoiaClient();
+    const client = await memoiaClient(requestProjectScope(req));
     if (!client) return createApiError("Unauthorized", 401);
     await client.forgetUser(uid);
   } catch (error: unknown) {

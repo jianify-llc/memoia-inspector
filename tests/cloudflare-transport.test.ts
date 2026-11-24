@@ -55,7 +55,7 @@ describe("Memoia Access transport", () => {
     expect(headers.get("CF-Access-Client-Secret")).toBe("fixture-client-secret");
   });
 
-  it("keeps other Docker endpoints usable without the configured token", async () => {
+  it("keeps Access credentials scoped to the configured origin", async () => {
     configureAccess();
     expect(memoiaTransport("http://another-memoia:8080")).toBeUndefined();
     const network = vi.fn();
@@ -65,6 +65,18 @@ describe("Memoia Access transport", () => {
       await expect(transport(endpoint)).rejects.toThrow("configured Access origin");
     }
     expect(network).not.toHaveBeenCalled();
+  });
+
+  it("restricts standalone Inspector to its configured environment origin", () => {
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://production.example");
+    expect(memoiaConnection().managed).toBe(true);
+    expect(memoiaEndpoint("https://production.example/")).toBe("https://production.example");
+    expect(memoiaEndpoint("https://test.example")).toBeNull();
+  });
+
+  it("allows self-hosted endpoints when no fixed origin is configured", () => {
+    expect(memoiaConnection().managed).toBe(false);
+    expect(memoiaEndpoint("http://another-memoia:8080")).toBe("http://another-memoia:8080");
   });
 
   it.each(["MEMOIA_HTTP_ORIGIN", "MEMOIA_ACCESS_CLIENT_ID", "MEMOIA_ACCESS_CLIENT_SECRET"])(

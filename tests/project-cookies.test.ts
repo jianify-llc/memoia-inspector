@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { cookies } from "next/headers";
 import { GET as getUsage } from "@/app/api/memobase/usage/route";
-import { POST } from "@/app/api/memobase/user/route";
+import { GET as getUsers, POST } from "@/app/api/memobase/user/route";
+import { GET as getUserMemories, POST as manageUserMemory } from "@/app/api/memobase/user/[uid]/memories/route";
+import { DELETE as forgetProjectUser } from "@/app/api/memobase/user/[uid]/route";
+import { POST as deleteSourceMessages } from "@/app/api/memoia/user/[uid]/sources/[source_id]/messages/delete/route";
 import { memoiaClient, clearLocale, getLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
@@ -24,6 +27,56 @@ beforeEach(() => {
 });
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+describe("selected project and user memory", () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const params = { params: Promise.resolve({ uid: userId }) };
+  const request = (method: "GET" | "POST", endpoint = "https://one.example", project = "project-a") =>
+    new Request("https://inspector.example/api/memobase/user/example/memories", {
+      method, headers: { origin: "https://inspector.example", "content-type": "application/json", "x-memoia-endpoint": endpoint, "x-memoia-project": project },
+      ...(method === "POST" ? { body: JSON.stringify({ action: "addProfile", content: "value", topic: "t", sub_topic: "s" }) } : {}),
+    });
+
+  it("rejects a changed endpoint before calling another Memoia instance", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://two.example|fixture");
+    const transport = vi.fn(); vi.stubGlobal("fetch", transport);
+    expect((await getUserMemories(request("GET"), params)).status).toBe(409);
+    expect((await manageUserMemory(request("POST"), params)).status).toBe(409);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects another project with the same user id before reading or writing", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://one.example|fixture");
+    const transport = vi.fn().mockImplementation(async () => Response.json({ project_id: "project-b" })); vi.stubGlobal("fetch", transport);
+    expect((await getUserMemories(request("GET"), params)).status).toBe(409);
+    expect((await manageUserMemory(request("POST"), params)).status).toBe(409);
+    expect((await getUsers(request("GET"))).status).toBe(409);
+    expect(transport).toHaveBeenCalledTimes(3);
+    expect(transport.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("uses the selected user after confirming the project", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://one.example|fixture");
+    const transport = vi.fn().mockResolvedValueOnce(Response.json({ project_id: "project-a" }))
+      .mockResolvedValueOnce(Response.json({ id: "22222222-2222-4222-8222-222222222222" }, { status: 201 }));
+    vi.stubGlobal("fetch", transport);
+    expect((await manageUserMemory(request("POST"), params)).status).toBe(200);
+    expect(String(transport.mock.calls[1][0])).toContain(`/api/users/${userId}/profiles`);
+    expect(transport.mock.calls[1][1].method).toBe("POST");
+  });
+
+  it("prevents user and source deletion after another tab switches the project", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://one.example|fixture");
+    const transport = vi.fn().mockImplementation(async () => Response.json({ project_id: "project-b" })); vi.stubGlobal("fetch", transport);
+    const headers = { origin: "https://inspector.example", "content-type": "application/json", "x-memoia-endpoint": "https://one.example", "x-memoia-project": "project-a" };
+    const user = new Request("https://inspector.example/api/memobase/user/u", { method: "DELETE", headers });
+    const messages = new Request("https://inspector.example/api/memoia/user/u/sources/s/messages/delete", { method: "POST", headers, body: JSON.stringify({ message_ids: ["m"], idempotency_key: "key" }) });
+    expect((await forgetProjectUser(user, params)).status).toBe(409);
+    expect((await deleteSourceMessages(messages, { params: Promise.resolve({ uid: userId, source_id: "s" }) })).status).toBe(409);
+    expect(transport.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("project and playground cookie ownership", () => {
   it("clears the old user when switching projects", async () => {
@@ -75,6 +128,13 @@ describe("project and playground cookie ownership", () => {
     await expect(setLocale("https://memoia-online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 
+  it("rejects another environment in standalone mode when an origin is configured", async () => {
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://production.example");
+    await setLocale("https://production.example", "production-key");
+    await expect(setLocale("https://test.example", "test-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await getLocale()).toEqual(["https://production.example", "production-key"]);
+  });
+
   it("treats an old cross-environment cookie as disconnected everywhere", async () => {
     vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: vi.fn() } } } as never);
     vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://test.example");
@@ -86,6 +146,16 @@ describe("project and playground cookie ownership", () => {
     expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
     await expect(prepareMemoiaUser("new-user")).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
     await expect(getMemoiaUser()).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a stale standalone cookie when the fixed environment changes", async () => {
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://production.example");
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://test.example|old-key");
+    values.set("MEMOBASE_INSPECTOR_USER", "old-user");
+    const transport = vi.fn(); vi.stubGlobal("fetch", transport);
+    expect(await getLocale()).toEqual([]);
+    expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
     expect(transport).not.toHaveBeenCalled();
   });
 

@@ -35,6 +35,7 @@ export interface Project {
   endpoint_url: string;
   endpoint_token: string;
   config_yaml: string;
+  project_id?: string;
 }
 
 export interface ProjectUsage {

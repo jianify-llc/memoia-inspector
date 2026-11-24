@@ -23,11 +23,7 @@ function projectCredentials(cookieStore: Awaited<ReturnType<typeof cookies>>, co
   return endpoint ? [endpoint, fields[1]] : null;
 }
 
-/** 项目 Cookie 是凭据唯一 owner，读取和管理共用同一 SDK。 */
-export async function memoiaClient() {
-  const connection = memoiaConnection();
-  const credentials = projectCredentials(await cookies(), connection);
-  if (!credentials) return null;
+function clientForCredentials(credentials: string[], connection: ReturnType<typeof memoiaConnection>) {
   const [endpoint, apiKey] = credentials;
   const options = { apiKey, maxAttempts: 2, readTimeoutMs: 10_000 };
   if (endpoint === "worker") {
@@ -35,6 +31,30 @@ export async function memoiaClient() {
     return new MemoiaClient({ ...options, binding: connection.binding });
   }
   return new MemoiaClient({ ...options, baseUrl: endpoint, fetch: memoiaTransport(endpoint, connection) });
+}
+
+/** 项目 Cookie 是凭据唯一 owner，读取和管理共用同一 SDK。 */
+export async function memoiaClient(expected?: { endpoint: string; projectId: string }) {
+  const connection = memoiaConnection();
+  const credentials = projectCredentials(await cookies(), connection);
+  if (!credentials) return null;
+  if (expected && credentials[0] !== expected.endpoint) throw new MemoiaError("PROJECT_CHANGED", 409, false);
+  const client = clientForCredentials(credentials, connection);
+  if (!client) return null;
+  if (expected && (await client.getProjectIdentity()).project_id !== expected.projectId) {
+    throw new MemoiaError("PROJECT_CHANGED", 409, false);
+  }
+  return client;
+}
+
+export async function getProjectContext() {
+  const connection = memoiaConnection();
+  const credentials = projectCredentials(await cookies(), connection);
+  if (!credentials) return null;
+  const client = clientForCredentials(credentials, connection);
+  if (!client) return null;
+  const { project_id } = await client.getProjectIdentity();
+  return { endpoint: credentials[0], token: credentials[1], projectId: project_id };
 }
 
 export async function getLocale() {

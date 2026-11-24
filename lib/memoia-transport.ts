@@ -23,7 +23,7 @@ export function memoiaConnection() {
   if ((clientId || clientSecret) && (!defaultUrl || !access)) {
     throw new Error("Memoia Access requires an origin, client ID and client secret");
   }
-  return { managed: Boolean(env), binding: env?.MEMOIA, defaultUrl, access };
+  return { managed: Boolean(env || defaultUrl), binding: env?.MEMOIA, defaultUrl, access };
 }
 
 export function memoiaEndpoint(value: string, { managed, binding, defaultUrl } = memoiaConnection()): string | null {

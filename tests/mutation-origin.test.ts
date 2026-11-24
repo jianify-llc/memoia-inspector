@@ -5,7 +5,7 @@ import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 
 const factory = vi.hoisted(() => ({ client: vi.fn(), user: vi.fn() }));
-vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client, getMemoiaUser: factory.user, clearMemoiaUser: vi.fn() }));
+vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client, getMemoiaUser: factory.user, getLocale: async () => ["https://memoia.example", "fixture"], clearMemoiaUser: vi.fn() }));
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 const request = (headers: Record<string, string> = {}, body?: string) => new Request("https://inspector.example/api", {
@@ -49,25 +49,24 @@ describe("Cookie-backed mutation boundary", () => {
     expect(rejectCrossOriginMutation(request({ origin: "https://inspector.example" }))?.status).toBe(403);
   });
 
-  it("Playground imports source messages once without a flush API", async () => {
-    const importBlob = vi.fn().mockResolvedValue({ status: "completed" });
-    factory.client.mockResolvedValue({ importBlob });
+  it("rejects a Playground save without a signed user and project receipt", async () => {
+    const importBlob = vi.fn();
+    factory.client.mockResolvedValue({ importBlob, getProjectIdentity: async () => ({ project_id: "project" }) });
     factory.user.mockResolvedValue("playground-user");
     const insert = await import("@/app/api/memobase/insert/route");
     const response = await insert.POST(request({ origin: "https://inspector.example", "content-type": "application/json" },
-      JSON.stringify({ idempotency_key: "turn-1", messages: [{ role: "user", content: "I enjoy chess", created_at: "2026-10-06T00:00:00Z" }] })));
-    expect(response.status).toBe(200);
-    expect(importBlob).toHaveBeenCalledExactlyOnceWith("playground-user", {
-      source_id: "playground", idempotency_key: "turn-1", messages: [{ role: "user", content: "I enjoy chess", message_id: "turn-1:0", occurred_at: "2026-10-06T00:00:00Z" }],
-    });
+      JSON.stringify({ action: "append", session_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", idempotency_key: "turn-1", messages: [{ role: "user", content: "I enjoy chess", created_at: "2026-10-06T00:00:00Z" }] })));
+    expect(response.status).toBe(409);
+    expect(importBlob).not.toHaveBeenCalled();
   });
-  it("does not report pending processing as completed memory", async () => {
-    factory.client.mockResolvedValue({ importBlob: vi.fn().mockResolvedValue({ status: "processing" }) });
+  it("rejects an invalid Playground identity before contacting Memoia", async () => {
+    factory.client.mockResolvedValue({ importBlob: vi.fn() });
     factory.user.mockResolvedValue("playground-user");
     const insert = await import("@/app/api/memobase/insert/route");
     const response = await insert.POST(request({ origin: "https://inspector.example", "content-type": "application/json" },
       JSON.stringify({ idempotency_key: "turn-1", messages: [{ role: "user", content: "Chess", created_at: "2026-10-06T00:00:00Z" }] })));
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(400);
+    expect(factory.client).not.toHaveBeenCalled();
   });
   it.each(["{", "null", '{"idempotency_key":"turn","messages":[null]}'])("rejects malformed import input without contacting Memoia: %s", async (body) => {
     const insert = await import("@/app/api/memobase/insert/route");

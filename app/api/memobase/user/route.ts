@@ -18,7 +18,10 @@ export async function GET(req: Request) {
     const limit = parseInt(searchParams.get("limit") || "10");
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    const client = await memoiaClient();
+    const endpoint = req.headers.get("x-memoia-endpoint");
+    const projectId = req.headers.get("x-memoia-project");
+    if (!endpoint || !projectId) return createApiError("PROJECT_REQUIRED", 400);
+    const client = await memoiaClient({ endpoint, projectId });
     if (!client) return createApiError("Unauthorized", 401);
     const usersInfo = await client.listUsers({ search, order_by, order_desc, limit, offset });
 

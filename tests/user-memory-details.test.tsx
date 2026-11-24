@@ -7,12 +7,12 @@ import messages from "@/messages/en.json";
 
 const api = vi.hoisted(() => ({
   memories: vi.fn(), users: vi.fn(), provenance: vi.fn(), source: vi.fn(), deleteMessages: vi.fn(),
-  updateFact: vi.fn(), deleteFact: vi.fn(), query: vi.fn(), retry: vi.fn(), deleteUser: vi.fn(), push: vi.fn(),
+  updateFact: vi.fn(), deleteFact: vi.fn(), query: vi.fn(), retry: vi.fn(), seal: vi.fn(), deleteUser: vi.fn(), push: vi.fn(),
 }));
 vi.mock("next/navigation", () => { const router = { push: api.push }; return { useRouter: () => router }; });
 vi.mock("@/api/models/memobase", () => ({ getProjectUserMemories: api.memories, getProjectUsers: api.users, deleteUserByUid: api.deleteUser }));
 vi.mock("@/api/models/memoia", () => ({ getUserProvenance: api.provenance, getSource: api.source,
-  deleteSourceMessages: api.deleteMessages, updateFact: api.updateFact, deleteFact: api.deleteFact, getOperation: api.query, retryOperation: api.retry, PROVENANCE_PAGE_SIZE: 20 }));
+  deleteSourceMessages: api.deleteMessages, updateFact: api.updateFact, deleteFact: api.deleteFact, getOperation: api.query, retryOperation: api.retry, sealStagedAppend: api.seal, PROVENANCE_PAGE_SIZE: 20 }));
 // Keep the real detail owner, provenance, Radix tabs/dialogs and JSON download.
 // Replace only the unrelated profile editor/timeline presentation.
 vi.mock("@/components/user-memory", async () => {
@@ -30,7 +30,7 @@ import Users from "@/components/project/tabs/users";
 const profile = (content: string) => ({ id: content, content, topic: "interest", sub_topic: content, created_at: "2026-10-05T00:00:00Z" });
 const oldMemories = { profiles: [profile("hiking"), profile("pottery")], events: [{ id: "hiking" }, { id: "pottery" }] };
 const newMemories = { profiles: [profile("pottery")], events: [{ id: "pottery" }] };
-const user = (count: number) => ({ id: "user-1", profile_count: count, event_count: count, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" });
+const user = (count: number) => ({ id: "user-1", project_id: "project-a", profile_count: count, event_count: count, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" });
 const completed = { operation_id: "op-1", source_id: "source-1", blob_id: null, status: "completed", result: { profile_ids: [], event_ids: [] }, error: null };
 const accepted = { ...completed, status: "processing", result: null };
 const response = <T,>(data: T) => ({ code: 0, message: "OK", data });
@@ -61,7 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mount = () => render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-  <Users project={{ endpoint_url: "https://memoia.example", endpoint_token: "fixture-token", config_yaml: "" }} />
+  <Users project={{ endpoint_url: "https://memoia.example", endpoint_token: "fixture-token", config_yaml: "", project_id: "project-a" }} />
 </NextIntlClientProvider>);
 const tab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0, ctrlKey: false });
 const openDetails = async () => {
@@ -156,8 +156,6 @@ describe("Fact proposal ownership across real tab unmounts", () => {
     const pending = deferred<{ code: number; data: null; message: string }>();
     api.source.mockResolvedValue(response(correctionSource));
     api.updateFact.mockReturnValueOnce(pending.promise).mockResolvedValue(response({ ...completed, kind: "correct" }));
-    const conflict = { ...accepted, kind: "correct", status: "failed", error: { code: "fact_revision_conflict", retryable: false } };
-    api.query.mockResolvedValue(response(conflict));
     await openDetails();
     await submitCorrection();
     const originalKey = api.updateFact.mock.calls[0][2].idempotency_key;
@@ -167,14 +165,7 @@ describe("Fact proposal ownership across real tab unmounts", () => {
       expect(screen.queryByText(messages.provenance.title)).toBeNull();
     }
     await act(async () => { pending.resolve({ code, data: null, message: code === 422 ? "invalid_fact_evidence" : "fact_revision_conflict" }); });
-    if (code === 409) {
-      tab(messages.project.users.provenance);
-      const query = await screen.findByRole("button", { name: messages.provenance.query });
-      fireEvent.click(query);
-      await screen.findByRole("button", { name: messages.provenance.dismissRejectedCorrection });
-      expect(api.query).toHaveBeenCalledWith("user-1", originalKey, undefined);
-      fireEvent.click(screen.getByRole("button", { name: messages.provenance.dismissRejectedCorrection }));
-    }
+    if (code === 409) expect(api.query).not.toHaveBeenCalled();
     tab(messages.project.users.table.memories);
     expect(screen.queryByText(messages.provenance.title)).toBeNull();
     api.source.mockResolvedValue(response({ ...correctionSource, evidence: [{ ...correctionFact, revision: 4, content: "Current server revision" }] }));
@@ -227,7 +218,7 @@ describe("Fact proposal ownership across real tab unmounts", () => {
     expect((screen.getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe("Retain this proposal");
     expect((screen.getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe("Verified original conversation");
     expect(api.updateFact).toHaveBeenCalledOnce();
-    expect(api.updateFact.mock.calls[0][0]).toBe("user-1");
+    expect(api.updateFact.mock.calls[0][0]).toMatchObject({ userId: "user-1", projectId: "project-a" });
   });
 
   it("releases a rejected draft when cancelling or choosing a different Fact", async () => {
@@ -304,11 +295,45 @@ describe("source mutation → all user memory views", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: messages.provenance.query }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: messages.provenance.query }));
     await waitFor(() => expect(api.memories).toHaveBeenCalledTimes(2));
-    expect(api.query).toHaveBeenCalledWith("user-1", key, outcome === "processing" ? "op-1" : undefined);
+    expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), key, outcome === "processing" ? "op-1" : undefined);
     expect(api.deleteMessages).toHaveBeenCalledOnce();
     tab(messages.project.users.table.memories);
     await waitFor(() => expect(screen.getByTestId("memory-snapshot").textContent).toBe("pottery"));
     expect(counterCells()).toEqual(["1", "1"]);
+  });
+
+  it.each(["correction", "message deletion"])("lets a user inspect current data after a missing %s receipt without replaying it", async (kind) => {
+    api.query.mockResolvedValue({ code: 404, data: null, message: "operation_not_found" });
+    api.source.mockResolvedValue(response(correctionSource));
+    if (kind === "correction") api.updateFact.mockRejectedValue(new Error("lost acknowledgement"));
+    else api.deleteMessages.mockRejectedValue(new Error("lost acknowledgement"));
+    await openDetails();
+    if (kind === "correction") await submitCorrection();
+    else await deleteMessage();
+    expect(screen.queryByRole("button", { name: messages.provenance.inspectCurrentState })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    await screen.findByText(messages.provenance.missingReceiptHelp);
+    fireEvent.click(screen.getByRole("button", { name: messages.provenance.inspectCurrentState }));
+    await waitFor(() => expect(api.memories).toHaveBeenCalledTimes(2));
+    expect(api.query).toHaveBeenCalledOnce();
+    expect(api.updateFact).toHaveBeenCalledTimes(kind === "correction" ? 1 : 0);
+    expect(api.deleteMessages).toHaveBeenCalledTimes(kind === "message deletion" ? 1 : 0);
+    tab(messages.project.users.table.memories);
+    await screen.findByTestId("memory-snapshot");
+  });
+
+  it("does not offer to stop waiting based on a stale missing receipt after a failed query", async () => {
+    api.deleteMessages.mockRejectedValue(new Error("lost acknowledgement"));
+    api.query.mockResolvedValueOnce({ code: 404, data: null, message: "operation_not_found" }).mockRejectedValueOnce(new Error("network unavailable"));
+    await openDetails();
+    await deleteMessage();
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    await screen.findByRole("button", { name: messages.provenance.inspectCurrentState });
+    fireEvent.click(screen.getByRole("button", { name: messages.provenance.query }));
+    await waitFor(() => expect(api.query).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((screen.getByRole("button", { name: messages.provenance.query }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.queryByRole("button", { name: messages.provenance.inspectCurrentState })).toBeNull());
+    expect(api.deleteMessages).toHaveBeenCalledOnce();
   });
 
   it("does not restore old memories when completed-operation readback fails", async () => {
@@ -338,7 +363,7 @@ describe("source mutation → all user memory views", () => {
   });
 
   it("queries an accepted recovery by operation ID after an unknown response", async () => {
-    const failed = { ...accepted, status: "failed", error: { code: "reconciliation_too_large", retryable: false } };
+    const failed = { ...accepted, kind: "fact_flush", status: "failed", error: { code: "provider_unavailable", retryable: true } };
     api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed], maintenance: { pending_blob_count: 0, flushes: [] } }));
     api.retry.mockRejectedValue(new Error("lost recovery acknowledgement"));
     api.query.mockImplementation(async () => { currentMemories = newMemories; userCount = 1; return response(completed); });
@@ -350,7 +375,7 @@ describe("source mutation → all user memory views", () => {
     expect(screen.queryByTestId("memory-snapshot")).toBeNull();
     tab(messages.project.users.provenance);
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
-    await waitFor(() => expect(api.query).toHaveBeenCalledWith("user-1", null, "op-1"));
+    await waitFor(() => expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), null, "op-1"));
     await waitFor(() => expect(api.memories).toHaveBeenCalledTimes(2));
     tab(messages.project.users.table.memories);
     await waitFor(() => expect(screen.getByTestId("memory-snapshot").textContent).toBe("pottery"));
@@ -358,8 +383,45 @@ describe("source mutation → all user memory views", () => {
     expect(api.deleteMessages).not.toHaveBeenCalled();
   });
 
+  it("lets a user retry the original staged append after a lost request and a confirmed missing receipt", async () => {
+    const appendId = "33333333-3333-4333-8333-333333333333";
+    const sourceId = "playground:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const staged = { ...accepted, operation_id: appendId, kind: "append", status: "staged", source_id: sourceId, blob_id: sourceId };
+    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [staged], maintenance: { pending_blob_count: 0, flushes: [] } }));
+    api.seal.mockRejectedValueOnce(new Error("request lost")).mockResolvedValueOnce(response({ ...accepted, kind: "fact_flush" }));
+    api.query.mockResolvedValue({ code: 404, data: null, message: "operation_not_found" });
+    await openDetails();
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
+    await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
+    await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(2));
+    expect(api.seal.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1", projectId: "project-a" }), appendId], [expect.objectContaining({ userId: "user-1", projectId: "project-a" }), appendId]]);
+    expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), `playground:fact:${appendId}`, undefined);
+  });
+
+  it("retains the original unknown seal if a later retry is blocked by a project switch", async () => {
+    const appendId = "33333333-3333-4333-8333-333333333333";
+    const sourceId = "playground:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const staged = { ...accepted, operation_id: appendId, kind: "append", status: "staged", source_id: sourceId, blob_id: sourceId };
+    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [staged], maintenance: { pending_blob_count: 0, flushes: [] } }));
+    api.seal.mockRejectedValueOnce(new Error("request lost")).mockResolvedValueOnce({ code: 409, data: null, message: "PROJECT_CHANGED" });
+    api.query.mockResolvedValue({ code: 404, data: null, message: "operation_not_found" });
+    await openDetails();
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
+    await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
+    await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((screen.getByRole("button", { name: messages.provenance.query }) as HTMLButtonElement).disabled).toBe(false));
+    expect(await screen.findByText(`playground:fact:${appendId}`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: messages.provenance.sealAppend })).toBeNull();
+  });
+
   it("refreshes both views after direct completion of an accepted recovery", async () => {
-    const failed = { ...accepted, status: "failed", error: { code: "provider_unavailable", retryable: true } };
+    const failed = { ...accepted, kind: "fact_flush", status: "failed", error: { code: "provider_unavailable", retryable: true } };
     api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [failed], maintenance: { pending_blob_count: 0, flushes: [] } }));
     api.retry.mockImplementation(async () => { currentMemories = newMemories; userCount = 1; return response(completed); });
     await openDetails();
@@ -380,7 +442,7 @@ describe("source mutation → all user memory views", () => {
     await openDetails();
     tab(messages.project.users.provenance);
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.recover }));
-    await waitFor(() => expect(api.retry).toHaveBeenCalledWith("user-1", "op-1"));
+    await waitFor(() => expect(api.retry).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), "op-1"));
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
     await screen.findByText("maintenance_invalid_identifier");
     expect(screen.getByRole("status").textContent).toBe(messages.provenance.failed);
@@ -427,7 +489,7 @@ describe("source mutation → all user memory views", () => {
     tab(messages.project.users.provenance);
     api.query.mockResolvedValue(response(completed));
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
-    await waitFor(() => expect(api.query).toHaveBeenCalledWith("user-1", key, undefined));
+    await waitFor(() => expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), key, undefined));
     expect(api.deleteMessages).toHaveBeenCalledOnce();
   });
 });

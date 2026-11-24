@@ -1,3 +1,4 @@
+vi.mock("@/lib/project-scope", () => ({ requestProjectScope: () => ({ endpoint: "https://memoia.example", projectId: "project-a" }) }));
 import { beforeEach, expect, it, vi } from "vitest";
 
 const transport = vi.hoisted(() => vi.fn());
@@ -7,6 +8,7 @@ vi.mock("@/utils/memoia/client", async () => {
   return {
     memoiaClient: async () => new MemoiaClient({ baseUrl: "https://contract.invalid", apiKey: "fixture-only", fetch: transport, maxAttempts: 2 }),
     getMemoiaUser: async () => "11111111-1111-4111-8111-111111111111",
+    getLocale: async () => ["https://contract.invalid", "fixture-only"],
   };
 });
 import { GET as source } from "@/app/api/memoia/user/[uid]/sources/[source_id]/route";
@@ -15,8 +17,10 @@ import { GET as maintenance } from "@/app/api/memobase/maintenance/route";
 import { POST as recoverMaintenance } from "@/app/api/memoia/user/[uid]/operations/route";
 import { POST as insert } from "@/app/api/memobase/insert/route";
 import { GET as usage } from "@/app/api/memobase/usage/route";
+import { GET as provenance } from "@/app/api/memoia/user/[uid]/provenance/route";
+import { signChain } from "@/lib/playground-chain";
 
-beforeEach(() => transport.mockReset());
+beforeEach(() => { transport.mockReset(); });
 
 it("preserves usage completeness through server SDK validation and the same-origin API", async () => {
   const data = { usages: [{ date: "2026-10-09", total_input_token: 10, total_output_token: 5,
@@ -114,17 +118,134 @@ it("keeps automatic backoff pending when the original flush has a retryable last
   expect(transport).toHaveBeenCalledTimes(1);
 });
 
-it("returns a fixed Fact receipt with no Event/Profile IDs instead of waiting for maintenance", async () => {
-  const receipt = { operation_id: "33333333-3333-4333-8333-333333333333", blob_id: "44444444-4444-4444-8444-444444444444", source_id: "playground",
-    status: "completed", result: { memory_version: 3, fact_ids: [], event_ids: [], profile_ids: [] }, error: null };
-  transport.mockResolvedValue(Response.json(receipt));
+it("stages the session turn and seals its exact append without waiting for Fact completion", async () => {
+  const session = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const project = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const sourceId = `playground:${session}`;
+  const append = { operation_id: "33333333-3333-4333-8333-333333333333", blob_id: sourceId, source_id: sourceId,
+    kind: "append", status: "staged", result: null, error: null };
+  const receipt = { ...append, operation_id: "44444444-4444-4444-8444-444444444444", kind: "fact_flush", status: "processing" };
+  transport.mockResolvedValueOnce(Response.json({ project_id: project }))
+    .mockResolvedValueOnce(Response.json(append, { status: 202 }))
+    .mockResolvedValueOnce(Response.json({ project_id: project }))
+    .mockResolvedValueOnce(Response.json(receipt, { status: 202 }));
+  const signed = signChain({ projectId: project, userId: uid, sessionId: session }, "response", "a".repeat(64),
+    [{ role: "user", content: "fixture" }], [], "fixture-only");
   const response = await insert(new Request("http://localhost", {
     method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
-    body: JSON.stringify({ idempotency_key: "fixed", messages: [{ role: "user", content: "fixture", created_at: "2026-04-03T00:00:00Z" }] }),
+    body: JSON.stringify({ action: "append", session_id: session, chain_receipt: signed, idempotency_key: "fixed", messages: [{ role: "user", content: "fixture", created_at: "2026-04-03T00:00:00Z" }] }),
   }));
-  expect(response.status).toBe(200);
-  expect((await response.json()).data).toEqual(receipt);
+  expect(response.status).toBe(202);
+  expect((await response.json()).data).toEqual(append);
+  const sealed = await insert(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ action: "seal", session_id: session, chain_receipt: signed, idempotency_key: "fixed", append_operation_id: append.operation_id }),
+  }));
+  expect(sealed.status).toBe(202);
+  expect((await sealed.json()).data).toEqual(receipt);
+  expect(transport).toHaveBeenCalledTimes(4);
+  const request = JSON.parse(String(transport.mock.calls[3][1].body));
+  expect(request).toEqual({ idempotency_key: `playground:fact:${append.operation_id}`, append_operation_ids: [append.operation_id] });
+  expect(String(transport.mock.calls[3][0])).toContain(`/blobs/${encodeURIComponent(sourceId)}/flush`);
+});
+
+it("rejects a receipt from the previous user before any message write", async () => {
+  const session = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const project = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const signed = signChain({ projectId: project, userId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", sessionId: session },
+    "response", "a".repeat(64), [{ role: "user", content: "fixture" }], [], "fixture-only");
+  transport.mockResolvedValueOnce(Response.json({ project_id: project }));
+  const response = await insert(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ action: "append", session_id: session, chain_receipt: signed, idempotency_key: "fixed",
+      messages: [{ role: "user", content: "fixture", created_at: "2026-04-03T00:00:00Z" }] }),
+  }));
+  expect(response.status).toBe(409);
   expect(transport).toHaveBeenCalledTimes(1);
+  expect(String(transport.mock.calls[0][0]).endsWith("/api/project/identity")).toBe(true);
+});
+
+it("loads provenance containing the current append and Fact task through the real SDK", async () => {
+  const sourceId = "playground:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const append = { operation_id: "33333333-3333-4333-8333-333333333333", blob_id: sourceId, source_id: sourceId,
+    kind: "append", status: "staged", result: null, error: null };
+  const flush = { ...append, operation_id: "44444444-4444-4444-8444-444444444444", kind: "fact_flush", status: "processing" };
+  transport.mockImplementation(async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith("/sources")) return Response.json({ sources: [] });
+    if (path.endsWith("/profiles")) return Response.json({ profiles: [] });
+    if (path.endsWith("/history")) return Response.json({ entries: [] });
+    if (path.endsWith("/operations")) return Response.json({ operations: [append, flush] });
+    if (path.endsWith("/maintenance")) return Response.json({ pending_blob_count: 0, flushes: [] });
+    throw new Error(`Unexpected request ${path}`);
+  });
+  const response = await provenance(new Request("http://localhost"), { params: Promise.resolve({ uid }) });
+  expect(response.status).toBe(200);
+  expect((await response.json()).data.operations).toEqual([append, flush]);
+});
+
+it("does not seal another caller's staged append", async () => {
+  const append = { operation_id: "33333333-3333-4333-8333-333333333333", blob_id: "luvel-session", source_id: "luvel-session",
+    kind: "append", status: "staged", result: null, error: null };
+  transport.mockResolvedValueOnce(Response.json(append));
+  const response = await recoverMaintenance(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ seal_append: append.operation_id }),
+  }), { params: Promise.resolve({ uid }) });
+  expect(response.status).toBe(409);
+  expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("unblocks a recovery when the staged append was permanently removed", async () => {
+  transport.mockResolvedValueOnce(Response.json({ detail: { code: "operation_not_found", retryable: false } }, { status: 404 }));
+  const response = await recoverMaintenance(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ seal_append: "33333333-3333-4333-8333-333333333333" }),
+  }), { params: Promise.resolve({ uid }) });
+  expect(response.status).toBe(410);
+  expect((await response.json()).message).toBe("append_not_found");
+});
+
+it.each(["append", "flush"])("confirms a lost %s acknowledgement using the original key", async (lost) => {
+  const session = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const project = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const sourceId = `playground:${session}`;
+  const append = { operation_id: "33333333-3333-4333-8333-333333333333", blob_id: sourceId, source_id: sourceId,
+    kind: "append", status: "staged", result: null, error: null };
+  const flush = { ...append, operation_id: "44444444-4444-4444-8444-444444444444", kind: "fact_flush", status: "processing" };
+  transport.mockImplementation(async (url, options) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/api/project/identity") return Response.json({ project_id: project });
+    if (path.endsWith("/blobs")) {
+      if (lost === "append") throw new Error("lost acknowledgement");
+      return Response.json(append, { status: 202 });
+    }
+    if (path.endsWith("/flush")) {
+      if (lost === "flush") throw new Error("lost acknowledgement");
+      return Response.json(flush, { status: 202 });
+    }
+    if (options?.method === "GET" && path.includes("/operations/by-key/")) return Response.json(lost === "append" ? append : flush);
+    throw new Error(`Unexpected request ${path}`);
+  });
+  const signed = signChain({ projectId: project, userId: uid, sessionId: session }, "response", "a".repeat(64),
+    [{ role: "user", content: "fixture" }], [], "fixture-only");
+  const response = await insert(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ action: "append", session_id: session, chain_receipt: signed, idempotency_key: "fixed",
+      messages: [{ role: "user", content: "fixture", created_at: "2026-04-03T00:00:00Z" }] }),
+  }));
+  expect(response.status).toBe(202);
+  expect((await response.json()).data).toEqual(append);
+  const sealed = await insert(new Request("http://localhost", {
+    method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+    body: JSON.stringify({ action: "seal", session_id: session, chain_receipt: signed, idempotency_key: "fixed", append_operation_id: append.operation_id }),
+  }));
+  expect(sealed.status).toBe(202);
+  expect((await sealed.json()).data).toEqual(flush);
+  const writes = transport.mock.calls.filter(([, init]) => init?.method === "POST");
+  expect(writes).toHaveLength(2);
+  const key = lost === "append" ? "playground:append:fixed" : `playground:fact:${append.operation_id}`;
+  expect(transport.mock.calls.some(([url]) => String(url).includes(encodeURIComponent(key)))).toBe(true);
 });
 
 it("rejects malformed maintenance progress and never fabricates an up-to-date state", async () => {

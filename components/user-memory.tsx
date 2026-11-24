@@ -82,6 +82,7 @@ export function UserMemory({
   canDelete,
   canDownload,
   downloadFileName,
+  manage,
 }: {
   isLoading: boolean;
   setIsLoading: (isLoading: boolean) => void;
@@ -97,17 +98,50 @@ export function UserMemory({
   canDelete?: boolean;
   canDownload?: boolean;
   downloadFileName?: string;
+  manage?: (data: Record<string, string>) => Promise<{ code: number; message?: string }>;
 }) {
   const t = useTranslations("memories");
   const [foldStatus, setFoldStatus] = useState<Record<string, boolean>>({});
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventContent, setEventContent] = useState("");
+  const [eventOriginal, setEventOriginal] = useState({ title: "", content: "" });
+
+  const eventEditor = (event?: UserEvent) => manage && (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" size="sm" aria-label={event ? t("editEvent") : t("addEvent")}
+          onClick={() => {
+            const original = { title: event?.event_data.title || "", content: event?.event_data.content || event?.event_data.event_tip || "" };
+            setEventOriginal(original); setEventTitle(original.title); setEventContent(original.content);
+          }}>
+          {event ? <Pencil className="w-4 h-4" /> : t("addEvent")}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>{event ? t("editEvent") : t("addEvent")}</AlertDialogTitle></AlertDialogHeader>
+        <label>{t("eventTitle")}<Input value={eventTitle} maxLength={500} onChange={(e) => setEventTitle(e.target.value)} /></label>
+        <label>{t("content")}<Textarea value={eventContent} maxLength={16000} onChange={(e) => setEventContent(e.target.value)} /></label>
+        <AlertDialogFooter><AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={(e) => {
+            if (!eventContent.trim() && (!event || eventContent !== eventOriginal.content)) { e.preventDefault(); toast.error(t("error_empty_fields")); return; }
+            const changes = { ...(eventTitle !== eventOriginal.title ? { title: eventTitle } : {}),
+              ...(eventContent !== eventOriginal.content ? { content: eventContent } : {}) };
+            if (event && !Object.keys(changes).length) return;
+            setIsLoading(true);
+            void manage(event ? { action: "updateEvent", id: event.id, ...changes } : { action: "addEvent", title: eventTitle, content: eventContent })
+              .then(handleMutationResponse).catch(handleMutationFailure).finally(() => setIsLoading(false));
+          }}>{t("submit")}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 
   // HTTP 错误正文也会 resolve；只有 code=0 才是已确认成功，未知写入先读取核对。
   const handleMutationResponse = async (response: { code: number; message?: string }) => {
     if (response.code !== 0) {
       toast.error(
-        response.message === "OUTCOME_UNKNOWN"
-          ? t("writeUnknown")
-          : response.message || t("writeFailed")
+        response.message === "OUTCOME_UNKNOWN" ? t("writeUnknown") :
+          response.message === "PROJECT_CHANGED" ? t("projectChanged") : response.message || t("writeFailed")
       );
       if (response.message !== "OUTCOME_UNKNOWN") return;
     }
@@ -292,7 +326,7 @@ export function UserMemory({
                             return;
                           }
                           setIsLoading(true);
-                          await addProfile(content, topic, sub_topic)
+                          await (manage ? manage({ action: "addProfile", content, topic, sub_topic }) : addProfile(content, topic, sub_topic))
                             .then(handleMutationResponse)
                             .catch(handleMutationFailure)
                             .finally(() => {
@@ -438,12 +472,12 @@ export function UserMemory({
                                                     return;
                                                   }
                                                   setIsLoading(true);
-                                                  await updateProfile(
+                                                  await (manage ? manage({ action: "updateProfile", id, content, topic, sub_topic }) : updateProfile(
                                                     id,
                                                     content,
                                                     topic,
                                                     sub_topic
-                                                  )
+                                                  ))
                                                     .then(handleMutationResponse)
                                                     .catch(handleMutationFailure)
                                                     .finally(() => {
@@ -486,9 +520,7 @@ export function UserMemory({
                                               <AlertDialogAction
                                                 onClick={async () => {
                                                   setIsLoading(true);
-                                                  await deleteProfile(
-                                                    profile.id
-                                                  )
+                                                  await (manage ? manage({ action: "deleteProfile", id: profile.id }) : deleteProfile(profile.id))
                                                     .then(handleMutationResponse)
                                                     .catch(handleMutationFailure)
                                                     .finally(() => {
@@ -537,12 +569,14 @@ export function UserMemory({
             </div>
           ) : (
             <>
+              {canAdd && eventEditor()}
               {events.map((event) => (
                 <Card key={event.id} className="group/event">
                   <CardHeader>
                     <CardTitle className="flex justify-between items-center">
                       {event.event_data?.title || new Date(event.created_at).toLocaleString()}
                       <div className="flex items-center gap-2">
+                        {canEdit && eventEditor(event)}
                         {canDelete && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -570,7 +604,7 @@ export function UserMemory({
                                 <AlertDialogAction
                                   onClick={async () => {
                                     setIsLoading(true);
-                                    await deleteEvent(event.id)
+                                    await (manage ? manage({ action: "deleteEvent", id: event.id }) : deleteEvent(event.id))
                                       .then(handleMutationResponse)
                                       .catch(handleMutationFailure)
                                       .finally(() => {

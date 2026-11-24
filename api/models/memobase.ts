@@ -12,17 +12,43 @@ export const ProfileEditor = z.object({ id: z.string(), content: z.string().min(
 export const getProfile = (): Promise<Res<UserProfile[]>> =>
   service.get("/api/memobase/profile");
 
+type PlaygroundReceipt = { sessionId: string; chainReceipt: string; idempotencyKey: string };
+
 export const insertMessages = (
   messages: {
     role: "user" | "assistant";
     content: string;
     alias?: string | undefined;
     created_at: string;
-  }[], idempotencyKey: string
+  }[], receipt: PlaygroundReceipt
 ): Promise<Res<Operation>> =>
   service.post("/api/memobase/insert", {
-    idempotency_key: idempotencyKey,
+    action: "append",
+    session_id: receipt.sessionId,
+    chain_receipt: receipt.chainReceipt,
+    idempotency_key: receipt.idempotencyKey,
     messages,
+  });
+
+export const getPlaygroundImportStatus = (receipt: PlaygroundReceipt, operationId: string, retry = false): Promise<Res<Operation>> =>
+  service.post("/api/memobase/insert", {
+    action: retry ? "retry" : "status",
+    session_id: receipt.sessionId,
+    chain_receipt: receipt.chainReceipt,
+    idempotency_key: receipt.idempotencyKey,
+    append_operation_id: operationId,
+  });
+
+export const getPlaygroundAppendStatus = (receipt: PlaygroundReceipt): Promise<Res<Operation>> =>
+  service.post("/api/memobase/insert", {
+    action: "append-status", session_id: receipt.sessionId,
+    chain_receipt: receipt.chainReceipt, idempotency_key: receipt.idempotencyKey,
+  });
+
+export const sealPlaygroundAppend = (receipt: PlaygroundReceipt, operationId: string): Promise<Res<Operation>> =>
+  service.post("/api/memobase/insert", {
+    action: "seal", session_id: receipt.sessionId, chain_receipt: receipt.chainReceipt,
+    idempotency_key: receipt.idempotencyKey, append_operation_id: operationId,
   });
 
 export const getEvent = (): Promise<Res<UserEvent[]>> =>
@@ -59,11 +85,11 @@ export const initializePlaygroundUser = async (id: string): Promise<Res<{ id: st
 export const deleteUser = (): Promise<Res<null>> =>
   service.delete(`/api/memobase/user`);
 
-export const deleteUserByUid = (uid: string): Promise<Res<null>> =>
-  service.delete(`/api/memobase/user/${uid}`);
+export const deleteUserByUid = (scope: UserMemoryScope): Promise<Res<null>> =>
+  service.delete(`/api/memobase/user/${encodeURIComponent(scope.userId)}`, undefined, scopeHeaders(scope));
 
-export const getProjectUsers = (pid: string, search: string, order_by: string, order_desc: boolean, limit: number, offset: number, signal?: AbortSignal) => {
-  return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, undefined, signal);
+export const getProjectUsers = (scope: { endpoint: string; projectId: string }, search: string, order_by: string, order_desc: boolean, limit: number, offset: number, signal?: AbortSignal) => {
+  return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, { "x-memoia-endpoint": scope.endpoint, "x-memoia-project": scope.projectId }, signal);
 }
 
 export const getProjectUsage = (last_days: number = 7, signal?: AbortSignal) => {
@@ -81,6 +107,12 @@ export const updateConfig = (config: string): Promise<Res<null>> =>
     config,
   });
 
-export const getProjectUserMemories = (uid: string, signal?: AbortSignal) => {
-  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[], maintenance: MaintenanceStatus }>>(`/api/memobase/user/${uid}/memories`, undefined, undefined, signal);
+export type UserMemoryScope = { userId: string; projectId: string; endpoint: string };
+export const scopeHeaders = (scope: UserMemoryScope) => ({ "x-memoia-project": scope.projectId, "x-memoia-endpoint": scope.endpoint });
+
+export const getProjectUserMemories = (scope: UserMemoryScope, signal?: AbortSignal) => {
+  return service.get<Res<{ profiles: UserProfile[], events: UserEvent[], maintenance: MaintenanceStatus }>>(`/api/memobase/user/${encodeURIComponent(scope.userId)}/memories`, undefined, scopeHeaders(scope), signal);
 }
+
+export const manageProjectUserMemory = (scope: UserMemoryScope, data: Record<string, string>): Promise<Res<null>> =>
+  service.post(`/api/memobase/user/${encodeURIComponent(scope.userId)}/memories`, data, scopeHeaders(scope));
