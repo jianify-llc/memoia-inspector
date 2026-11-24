@@ -218,7 +218,7 @@ describe("Fact proposal ownership across real tab unmounts", () => {
     expect((screen.getByLabelText(messages.provenance.factContent) as HTMLTextAreaElement).value).toBe("Retain this proposal");
     expect((screen.getByLabelText(messages.provenance.correctionReason) as HTMLTextAreaElement).value).toBe("Verified original conversation");
     expect(api.updateFact).toHaveBeenCalledOnce();
-    expect(api.updateFact.mock.calls[0][0]).toBe("user-1");
+    expect(api.updateFact.mock.calls[0][0]).toMatchObject({ userId: "user-1", projectId: "project-a" });
   });
 
   it("releases a rejected draft when cancelling or choosing a different Fact", async () => {
@@ -295,7 +295,7 @@ describe("source mutation → all user memory views", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: messages.provenance.query }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: messages.provenance.query }));
     await waitFor(() => expect(api.memories).toHaveBeenCalledTimes(2));
-    expect(api.query).toHaveBeenCalledWith("user-1", key, outcome === "processing" ? "op-1" : undefined);
+    expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), key, outcome === "processing" ? "op-1" : undefined);
     expect(api.deleteMessages).toHaveBeenCalledOnce();
     tab(messages.project.users.table.memories);
     await waitFor(() => expect(screen.getByTestId("memory-snapshot").textContent).toBe("pottery"));
@@ -375,7 +375,7 @@ describe("source mutation → all user memory views", () => {
     expect(screen.queryByTestId("memory-snapshot")).toBeNull();
     tab(messages.project.users.provenance);
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
-    await waitFor(() => expect(api.query).toHaveBeenCalledWith("user-1", null, "op-1"));
+    await waitFor(() => expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), null, "op-1"));
     await waitFor(() => expect(api.memories).toHaveBeenCalledTimes(2));
     tab(messages.project.users.table.memories);
     await waitFor(() => expect(screen.getByTestId("memory-snapshot").textContent).toBe("pottery"));
@@ -397,8 +397,27 @@ describe("source mutation → all user memory views", () => {
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
     await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(2));
-    expect(api.seal.mock.calls).toEqual([["user-1", appendId], ["user-1", appendId]]);
-    expect(api.query).toHaveBeenCalledWith("user-1", `playground:fact:${appendId}`, undefined);
+    expect(api.seal.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1", projectId: "project-a" }), appendId], [expect.objectContaining({ userId: "user-1", projectId: "project-a" }), appendId]]);
+    expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), `playground:fact:${appendId}`, undefined);
+  });
+
+  it("retains the original unknown seal if a later retry is blocked by a project switch", async () => {
+    const appendId = "33333333-3333-4333-8333-333333333333";
+    const sourceId = "playground:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const staged = { ...accepted, operation_id: appendId, kind: "append", status: "staged", source_id: sourceId, blob_id: sourceId };
+    api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [staged], maintenance: { pending_blob_count: 0, flushes: [] } }));
+    api.seal.mockRejectedValueOnce(new Error("request lost")).mockResolvedValueOnce({ code: 409, data: null, message: "PROJECT_CHANGED" });
+    api.query.mockResolvedValue({ code: 404, data: null, message: "operation_not_found" });
+    await openDetails();
+    tab(messages.project.users.provenance);
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
+    await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.sealAppend }));
+    await waitFor(() => expect(api.seal).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((screen.getByRole("button", { name: messages.provenance.query }) as HTMLButtonElement).disabled).toBe(false));
+    expect(await screen.findByText(`playground:fact:${appendId}`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: messages.provenance.sealAppend })).toBeNull();
   });
 
   it("refreshes both views after direct completion of an accepted recovery", async () => {
@@ -423,7 +442,7 @@ describe("source mutation → all user memory views", () => {
     await openDetails();
     tab(messages.project.users.provenance);
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.recover }));
-    await waitFor(() => expect(api.retry).toHaveBeenCalledWith("user-1", "op-1"));
+    await waitFor(() => expect(api.retry).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), "op-1"));
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
     await screen.findByText("maintenance_invalid_identifier");
     expect(screen.getByRole("status").textContent).toBe(messages.provenance.failed);
@@ -470,7 +489,7 @@ describe("source mutation → all user memory views", () => {
     tab(messages.project.users.provenance);
     api.query.mockResolvedValue(response(completed));
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
-    await waitFor(() => expect(api.query).toHaveBeenCalledWith("user-1", key, undefined));
+    await waitFor(() => expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", projectId: "project-a" }), key, undefined));
     expect(api.deleteMessages).toHaveBeenCalledOnce();
   });
 });

@@ -87,10 +87,10 @@ export default function Users({ project }: { project: Project }) {
 
   const [selectedUser, setSelectedUser] = useState<ProjectUser | null>(null);
 
-  const handleDelete = async (uid: string) => {
+  const handleDelete = async (user: ProjectUser) => {
     setLoading(true);
     try {
-      const res = await deleteUserByUid(uid);
+      const res = await deleteUserByUid({ userId: user.id, projectId: user.project_id, endpoint: project.endpoint_url });
       if (res.code === 0) {
         toast.success(t("deleteSuccess"));
         await fetchUsers();
@@ -406,7 +406,7 @@ export default function Users({ project }: { project: Project }) {
                                 {t("cancel")}
                               </AlertDialogCancel>
                               <AlertDialogAction
-                                onClick={() => handleDelete(user.id)}
+                                onClick={() => handleDelete(user)}
                               >
                                 {t("confirm")}
                               </AlertDialogAction>

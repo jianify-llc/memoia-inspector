@@ -3,6 +3,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import type { Operation, Source, UpdateFact } from "@jianify/memoia";
+import type { UserMemoryScope } from "@/api/models/memobase";
 import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, sealStagedAppend, updateFact, deleteFact, type UserProvenanceData } from "@/api/models/memoia";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,8 +19,8 @@ import { MaintenanceNotice } from "@/components/maintenance-status";
 import { FactCorrection, type FactProposal } from "@/components/fact-correction";
 
 /** Provenance reads locally; the detail owner coordinates mutation and memory refresh. */
-export function UserProvenance({ userId, mutation, setMutation, onInvalidate, onResolved }: {
-  userId: string;
+export function UserProvenance({ scope, mutation, setMutation, onInvalidate, onResolved }: {
+  scope: UserMemoryScope;
   mutation: ProvenanceMutation;
   setMutation: Dispatch<SetStateAction<ProvenanceMutation>>;
   onInvalidate: () => void;
@@ -53,14 +54,14 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     if (unresolved) { setLoading(false); return () => controller.abort(); }
     setLoading(true);
     setError(false);
-    void getUserProvenance(userId, controller.signal, page).then((response) => {
+    void getUserProvenance(scope, controller.signal, page).then((response) => {
       if (controller.signal.aborted) return;
       if (response.code !== 0 || !response.data) { setError(true); return; }
       setData(response.data);
     }).catch(() => { if (!controller.signal.aborted) setError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [userId, revision, page, unresolved]);
+  }, [scope, revision, page, unresolved]);
 
   const acceptOperation = (result: Operation) => {
     setOperation(result);
@@ -88,12 +89,12 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     setBusy(true);
     onInvalidate();
     try {
-      const response = await deleteSourceMessages(userId, selected.source_id, selectedMessages, key);
+      const response = await deleteSourceMessages(scope, selected.source_id, selectedMessages, key);
       if (response.code !== 0 || !response.data) {
         // Authentication/parameter errors were rejected before acceptance.
         // An unclassified/server failure may have committed; retain its key.
         // 413 can occur after accepted withdrawal hid evidence; query its key.
-        if ([400, 401, 403, 415, 422].includes(response.code)) {
+        if ([400, 401, 403, 415, 422].includes(response.code) || response.message === "PROJECT_CHANGED") {
           setPendingKey(null);
           onResolved();
         }
@@ -116,11 +117,11 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     onInvalidate();
     try {
       const input = { ...proposal, idempotency_key: key };
-      const response = mode === "edit" ? await updateFact(userId, fact.fact_id, input as UpdateFact) : await deleteFact(userId, fact.fact_id, input);
+      const response = mode === "edit" ? await updateFact(scope, fact.fact_id, input as UpdateFact) : await deleteFact(scope, fact.fact_id, input);
       if (response.code !== 0 || !response.data) {
         const missingTarget = response.code === 404 && response.message === "fact_not_found";
         const staleRevision = response.code === 409 && response.message === "fact_revision_conflict";
-        if ([400, 401, 403, 410, 415, 422].includes(response.code) || missingTarget || staleRevision) {
+        if ([400, 401, 403, 410, 415, 422].includes(response.code) || missingTarget || staleRevision || response.message === "PROJECT_CHANGED") {
           if (missingTarget) setCorrection(null);
           setPendingKey(null);
           onResolved();
@@ -138,7 +139,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     setReceiptNotFound(false);
     setBusy(true);
     try {
-      const response = await getOperation(userId, pendingKey, operation?.operation_id);
+      const response = await getOperation(scope, pendingKey, operation?.operation_id);
       if (response.code !== 0 || !response.data) {
         setReceiptNotFound(response.code === 404 && response.message === "operation_not_found");
         toast.error(response.message || t("failed"));
@@ -156,7 +157,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     setSelected(null);
     setSelectedMessages([]);
     try {
-      const response = await getSource(userId, sourceId);
+      const response = await getSource(scope, sourceId);
       if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
       setSelected(response.data);
     } catch { toast.error(t("failed")); }
@@ -169,7 +170,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     setBusy(true);
     onInvalidate();
     try {
-      const response = await retryOperation(userId, known.operation_id);
+      const response = await retryOperation(scope, known.operation_id);
       if (response.code !== 0 || !response.data) {
         toast.error(response.message || t("failed"));
         return;
@@ -180,15 +181,17 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
   };
 
   const seal = async (operationId: string) => {
+    const key = `playground:fact:${operationId}`;
+    const retrying = pendingKey === key;
     setReceiptNotFound(false);
-    setPendingKey(`playground:fact:${operationId}`);
+    setPendingKey(key);
     setOperation(null);
     setBusy(true);
     onInvalidate();
     try {
-      const response = await sealStagedAppend(userId, operationId);
+      const response = await sealStagedAppend(scope, operationId);
       if (response.code !== 0 || !response.data) {
-        if ([400, 401, 403, 409, 410, 422].includes(response.code)) {
+        if (!retrying && [400, 401, 403, 409, 410, 422].includes(response.code)) {
           setPendingKey(null);
           onResolved();
         }
@@ -209,7 +212,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
       collection === "blobs" ? "blob_offset" : "evidence_offset";
     setBusy(true);
     try {
-      const response = await getSource(userId, selected.source_id, { [field]: offset });
+      const response = await getSource(scope, selected.source_id, { [field]: offset });
       if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
       setSelected(appendSourcePage(selected, response.data, collection));
     } catch { toast.error(t("failed")); }
@@ -266,7 +269,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
           <MaintenanceNotice state={data.maintenance} busy={busy} onRecover={(id) => {
             const existing = data.operations.find(item => item.operation_id === id);
             if (existing) void recover(existing);
-            else void getOperation(userId, null, id).then(response => {
+            else void getOperation(scope, null, id).then(response => {
               if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
               void recover(response.data);
             }).catch(() => toast.error(t("failed")));

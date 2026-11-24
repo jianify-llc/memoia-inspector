@@ -1,3 +1,4 @@
+vi.mock("@/lib/project-scope", () => ({ requestProjectScope: () => ({ endpoint: "https://memoia.example", projectId: "project-a" }) }));
 import { beforeEach, expect, it, vi } from "vitest";
 
 const transport = vi.hoisted(() => vi.fn());

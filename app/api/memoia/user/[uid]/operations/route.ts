@@ -1,13 +1,14 @@
 import { createApiError, createApiResponse } from "@/lib/api-response";
 import { memoiaApiError } from "@/lib/memoia-api-response";
 import { memoiaClient } from "@/utils/memoia/client";
+import { requestProjectScope } from "@/lib/project-scope";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 import { MemoiaError } from "@jianify/memoia";
 
 export async function GET(request: Request, { params }: { params: Promise<{ uid: string }> }) {
   try {
-    const client = await memoiaClient();
+    const client = await memoiaClient(requestProjectScope(request));
     if (!client) return createApiError("Project credentials are required", 401);
     const query = new URL(request.url).searchParams;
     const key = query.get("key");
@@ -24,7 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ uid
   const originError = rejectCrossOriginMutation(request);
   if (originError) return originError;
   try {
-    const client = await memoiaClient();
+    const client = await memoiaClient(requestProjectScope(request));
     if (!client) return createApiError("Project credentials are required", 401);
     const body = await readJsonObject(request);
     if (body.error) return body.error;

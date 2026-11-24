@@ -107,7 +107,7 @@ export function UserMemoryDetails({ userId, scope, open, mutation, setMutation, 
           )}
         </TabsContent>
         <TabsContent value="provenance" className="min-h-0 flex-1 overflow-hidden">
-          <UserProvenance userId={userId} mutation={mutation} setMutation={setMutation}
+          <UserProvenance scope={scope} mutation={mutation} setMutation={setMutation}
             onInvalidate={invalidate} onResolved={resolved} />
         </TabsContent>
       </Tabs>

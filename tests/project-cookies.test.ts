@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { GET as getUsage } from "@/app/api/memobase/usage/route";
 import { GET as getUsers, POST } from "@/app/api/memobase/user/route";
 import { GET as getUserMemories, POST as manageUserMemory } from "@/app/api/memobase/user/[uid]/memories/route";
+import { DELETE as forgetProjectUser } from "@/app/api/memobase/user/[uid]/route";
+import { POST as deleteSourceMessages } from "@/app/api/memoia/user/[uid]/sources/[source_id]/messages/delete/route";
 import { memoiaClient, clearLocale, getLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
@@ -61,6 +63,18 @@ describe("selected project and user memory", () => {
     expect((await manageUserMemory(request("POST"), params)).status).toBe(200);
     expect(String(transport.mock.calls[1][0])).toContain(`/api/users/${userId}/profiles`);
     expect(transport.mock.calls[1][1].method).toBe("POST");
+  });
+
+  it("prevents user and source deletion after another tab switches the project", async () => {
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://one.example|fixture");
+    const transport = vi.fn().mockImplementation(async () => Response.json({ project_id: "project-b" })); vi.stubGlobal("fetch", transport);
+    const headers = { origin: "https://inspector.example", "content-type": "application/json", "x-memoia-endpoint": "https://one.example", "x-memoia-project": "project-a" };
+    const user = new Request("https://inspector.example/api/memobase/user/u", { method: "DELETE", headers });
+    const messages = new Request("https://inspector.example/api/memoia/user/u/sources/s/messages/delete", { method: "POST", headers, body: JSON.stringify({ message_ids: ["m"], idempotency_key: "key" }) });
+    expect((await forgetProjectUser(user, params)).status).toBe(409);
+    expect((await deleteSourceMessages(messages, { params: Promise.resolve({ uid: userId, source_id: "s" }) })).status).toBe(409);
+    expect(transport.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 });
 

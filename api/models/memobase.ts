@@ -85,8 +85,8 @@ export const initializePlaygroundUser = async (id: string): Promise<Res<{ id: st
 export const deleteUser = (): Promise<Res<null>> =>
   service.delete(`/api/memobase/user`);
 
-export const deleteUserByUid = (uid: string): Promise<Res<null>> =>
-  service.delete(`/api/memobase/user/${uid}`);
+export const deleteUserByUid = (scope: UserMemoryScope): Promise<Res<null>> =>
+  service.delete(`/api/memobase/user/${encodeURIComponent(scope.userId)}`, undefined, scopeHeaders(scope));
 
 export const getProjectUsers = (scope: { endpoint: string; projectId: string }, search: string, order_by: string, order_desc: boolean, limit: number, offset: number, signal?: AbortSignal) => {
   return service.get<Res<GetProjectUsersResponse>>(`/api/memobase/user`, { search, order_by, order_desc, limit, offset }, { "x-memoia-endpoint": scope.endpoint, "x-memoia-project": scope.projectId }, signal);
@@ -108,7 +108,7 @@ export const updateConfig = (config: string): Promise<Res<null>> =>
   });
 
 export type UserMemoryScope = { userId: string; projectId: string; endpoint: string };
-const scopeHeaders = (scope: UserMemoryScope) => ({ "x-memoia-project": scope.projectId, "x-memoia-endpoint": scope.endpoint });
+export const scopeHeaders = (scope: UserMemoryScope) => ({ "x-memoia-project": scope.projectId, "x-memoia-endpoint": scope.endpoint });
 
 export const getProjectUserMemories = (scope: UserMemoryScope, signal?: AbortSignal) => {
   return service.get<Res<{ profiles: UserProfile[], events: UserEvent[], maintenance: MaintenanceStatus }>>(`/api/memobase/user/${encodeURIComponent(scope.userId)}/memories`, undefined, scopeHeaders(scope), signal);

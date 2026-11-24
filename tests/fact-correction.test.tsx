@@ -15,9 +15,10 @@ import { UserProvenance } from "@/components/user-provenance";
 const response = <T,>(data: T) => ({ code: 0, data, message: "OK" });
 const fact = { fact_id: "fact-1", blob_id: "blob-1", revision: 3, content: "Original fact", subject: "user", reporter: "user", certainty: "asserted", support_groups: [["m1"]], fact_time: null, created_at: null, updated_at: null };
 const receipt = { kind: "correct", operation_id: "op-1", source_id: "source-1", blob_id: "blob-1", status: "completed", result: { memory_version: 4 }, error: null };
+const scope = { userId: "user-1", projectId: "project-a", endpoint: "https://memoia.example" };
 function Harness() {
   const [mutation, setMutation] = useState<ProvenanceMutation>({ pendingKey: null, operation: null, busy: false });
-  return <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC"><UserProvenance userId="user-1" mutation={mutation} setMutation={setMutation} onInvalidate={api.invalidate} onResolved={api.resolved} /></NextIntlClientProvider>;
+  return <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC"><UserProvenance scope={scope} mutation={mutation} setMutation={setMutation} onInvalidate={api.invalidate} onResolved={api.resolved} /></NextIntlClientProvider>;
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -64,7 +65,7 @@ describe("targeted Fact correction", () => {
     expect(api.update).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: messages.provenance.saveCorrection }));
     await waitFor(() => expect(api.resolved).toHaveBeenCalledOnce());
-    expect(api.update).toHaveBeenCalledExactlyOnceWith("user-1", "fact-1", { idempotency_key: expect.stringMatching(/^inspector:correct-fact:/), expected_revision: 3, reason: "Checked original caller conversation", content: "Corrected fact", subject: "friend", reporter: "user", certainty: "reported", support_groups: [["m1", "m2"], ["m2"]], fact_time: { start: "2026-10-01", end: "2026-10-01", precision: "day", evidence: [{ message_id: "m2", expression: "yesterday" }] } });
+    expect(api.update).toHaveBeenCalledExactlyOnceWith(scope, "fact-1", { idempotency_key: expect.stringMatching(/^inspector:correct-fact:/), expected_revision: 3, reason: "Checked original caller conversation", content: "Corrected fact", subject: "friend", reporter: "user", certainty: "reported", support_groups: [["m1", "m2"], ["m2"]], fact_time: { start: "2026-10-01", end: "2026-10-01", precision: "day", evidence: [{ message_id: "m2", expression: "yesterday" }] } });
     expect(api.deleteMessages).not.toHaveBeenCalled();
   });
   it("requires reason/original-chat verification and rejects empty support groups before submission", async () => {
@@ -83,7 +84,7 @@ describe("targeted Fact correction", () => {
     fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.reviewCorrection }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.deleteFact }));
     await waitFor(() => expect(api.remove).toHaveBeenCalledOnce());
-    expect(api.remove).toHaveBeenCalledWith("user-1", "fact-1", { idempotency_key: expect.any(String), expected_revision: 3, reason: "Checked original caller conversation" });
+    expect(api.remove).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1" }), "fact-1", { idempotency_key: expect.any(String), expected_revision: 3, reason: "Checked original caller conversation" });
     expect(api.update).not.toHaveBeenCalled();
     expect(api.deleteMessages).not.toHaveBeenCalled();
   });
@@ -99,7 +100,7 @@ describe("targeted Fact correction", () => {
     expect(screen.queryByText("Original fact")).toBeNull();
     fireEvent.click(query);
     await waitFor(() => expect(api.resolved).toHaveBeenCalledOnce());
-    expect(api.query).toHaveBeenCalledWith("user-1", api.update.mock.calls[0][2].idempotency_key, undefined);
+    expect(api.query).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1" }), api.update.mock.calls[0][2].idempotency_key, undefined);
     expect(api.update).toHaveBeenCalledOnce();
     expect(api.invalidate).toHaveBeenCalledOnce();
   });

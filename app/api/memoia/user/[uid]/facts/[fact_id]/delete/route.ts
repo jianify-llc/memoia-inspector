@@ -3,12 +3,13 @@ import { memoiaApiError } from "@/lib/memoia-api-response";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 import { memoiaClient } from "@/utils/memoia/client";
+import { requestProjectScope } from "@/lib/project-scope";
 
 export async function POST(request: Request, { params }: { params: Promise<{ uid: string; fact_id: string }> }) {
   const originError = rejectCrossOriginMutation(request);
   if (originError) return originError;
   try {
-    const client = await memoiaClient();
+    const client = await memoiaClient(requestProjectScope(request));
     if (!client) return createApiError("Project credentials are required", 401);
     const body = await readJsonObject(request);
     if (body.error) return body.error;
