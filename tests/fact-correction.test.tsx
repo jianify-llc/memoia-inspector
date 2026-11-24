@@ -103,19 +103,20 @@ describe("targeted Fact correction", () => {
     expect(api.update).toHaveBeenCalledOnce();
     expect(api.invalidate).toHaveBeenCalledOnce();
   });
-  it("resumes an accepted correction by receipt, then shows maintenance separately from the Fact commit", async () => {
+  it("queries an accepted correction by its original key, then shows maintenance separately", async () => {
     api.update.mockResolvedValue(response({ ...receipt, status: "processing", result: null }));
-    api.retry.mockResolvedValue(response(receipt));
+    api.query.mockResolvedValue(response(receipt));
     const editor = await open();
     verifyOriginal(editor);
     fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.reviewCorrection }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.saveCorrection }));
-    const recover = await screen.findByRole("button", { name: messages.provenance.recover });
-    await waitFor(() => expect((recover as HTMLButtonElement).disabled).toBe(false));
+    const query = await screen.findByRole("button", { name: messages.provenance.query });
+    await waitFor(() => expect((query as HTMLButtonElement).disabled).toBe(false));
     api.provenance.mockResolvedValue(response({ sources: [], profiles: [], history: [], operations: [receipt], maintenance: { pending_blob_count: 1, flushes: [] } }));
-    fireEvent.click(recover);
+    fireEvent.click(query);
     await waitFor(() => expect(api.resolved).toHaveBeenCalledOnce());
-    expect(api.retry).toHaveBeenCalledExactlyOnceWith("user-1", "op-1");
+    expect(api.query).toHaveBeenCalledOnce();
+    expect(api.retry).not.toHaveBeenCalled();
     expect(api.update).toHaveBeenCalledOnce();
     await screen.findByText(messages.maintenance.stale);
   });
@@ -125,22 +126,17 @@ describe("targeted Fact correction", () => {
     expect(screen.getByText(`${messages.provenance.factUpdated}: ${messages.provenance.unknownTime}`)).toBeTruthy();
     expect(screen.getByText(new RegExp(`^${messages.provenance.blobCreated}:`))).toBeTruthy();
   });
-  it("ends an explicitly acknowledged terminal revision rejection without repeating the proposal", async () => {
+  it("unlocks a definite revision rejection without looking for a nonexistent receipt", async () => {
     api.update.mockResolvedValue({ code: 409, data: null, message: "fact_revision_conflict" });
-    api.query.mockResolvedValue(response({ ...receipt, status: "failed", result: null, error: { code: "fact_revision_conflict", retryable: false } }));
     const editor = await open();
     verifyOriginal(editor);
     fireEvent.change(within(editor).getByLabelText(messages.provenance.factContent), { target: { value: "Deliberate revised proposal" } });
     fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.reviewCorrection }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.saveCorrection }));
-    const query = await screen.findByRole("button", { name: messages.provenance.query });
-    fireEvent.click(query);
-    const dismiss = await screen.findByRole("button", { name: messages.provenance.dismissRejectedCorrection });
-    expect(api.resolved).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.resolved).toHaveBeenCalledOnce());
+    expect(api.query).not.toHaveBeenCalled();
     const source = await api.source.getMockImplementation()!();
     api.source.mockResolvedValue({ ...source, data: { ...source.data, evidence: [{ ...fact, revision: 4, content: "Current server revision" }] } });
-    fireEvent.click(dismiss);
-    await waitFor(() => expect(api.resolved).toHaveBeenCalledOnce());
     fireEvent.click(await screen.findByRole("button", { name: messages.provenance.inspect }));
     await screen.findByText(messages.provenance.draftRetained);
     const restored = screen.getByRole("region", { name: messages.provenance.editFact });
@@ -152,24 +148,19 @@ describe("targeted Fact correction", () => {
     expect(api.update).toHaveBeenCalledOnce();
     expect(api.retry).not.toHaveBeenCalled();
   });
-  it("resumes input_required only by original receipt after the caller has supplied the original proposal", async () => {
+  it("allows acknowledging an unrecoverable historical correction without retrying it", async () => {
     api.update.mockResolvedValue(response({ ...receipt, status: "failed", result: null, error: { code: "input_required", retryable: false } }));
-    api.retry.mockResolvedValueOnce({ code: 409, data: null, message: "input_required" }).mockResolvedValueOnce(response(receipt));
     const editor = await open();
     verifyOriginal(editor);
     fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.reviewCorrection }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.saveCorrection }));
     await screen.findByText("input_required");
-    expect(screen.queryByRole("button", { name: messages.provenance.dismissRejectedCorrection })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: messages.provenance.recoverReplenished }));
-    await waitFor(() => expect(api.retry).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("button", { name: messages.provenance.recoverReplenished })).toBeNull();
     expect(toast.success).not.toHaveBeenCalled();
     expect(api.resolved).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith(messages.provenance.inputRequiredQuery);
-    await waitFor(() => expect((screen.getByRole("button", { name: messages.provenance.recoverReplenished }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByRole("button", { name: messages.provenance.recoverReplenished }));
+    fireEvent.click(screen.getByRole("button", { name: messages.provenance.dismissRejectedCorrection }));
     await waitFor(() => expect(api.resolved).toHaveBeenCalledOnce());
-    expect(api.retry.mock.calls).toEqual([["user-1", "op-1"], ["user-1", "op-1"]]);
+    expect(api.retry).not.toHaveBeenCalled();
     expect(api.update).toHaveBeenCalledOnce();
   });
   it("requires explicit subject, reporter and a supported certainty when correcting legacy facts", async () => {
@@ -272,19 +263,20 @@ describe("targeted Fact correction", () => {
     expect(api.query).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
   });
-  it("handles a real retry HTTP input_required without fabricating a failed receipt or successful completion", async () => {
+  it("keeps an unconfirmed correction visible when its original receipt cannot be read", async () => {
     api.update.mockResolvedValue(response({ ...receipt, status: "processing", result: null }));
-    api.retry.mockResolvedValue({ code: 409, data: null, message: "input_required" });
+    api.query.mockResolvedValue({ code: 502, data: null, message: "OUTCOME_UNKNOWN" });
     const editor = await open();
     verifyOriginal(editor);
     fireEvent.click(within(editor).getByRole("button", { name: messages.provenance.reviewCorrection }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: messages.provenance.saveCorrection }));
-    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.recover }));
-    await screen.findByRole("button", { name: messages.provenance.recoverReplenished });
+    fireEvent.click(await screen.findByRole("button", { name: messages.provenance.query }));
+    await waitFor(() => expect(api.query).toHaveBeenCalledOnce());
     expect(screen.getByRole("status").textContent).toBe(messages.provenance.processing);
     expect(screen.getByRole("button", { name: messages.provenance.query })).toBeTruthy();
     expect(api.resolved).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     expect(api.update).toHaveBeenCalledOnce();
+    expect(api.retry).not.toHaveBeenCalled();
   });
 });

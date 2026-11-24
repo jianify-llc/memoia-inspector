@@ -4,7 +4,9 @@ import { render, fireEvent, screen, waitFor, cleanup } from "@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ options: {} as Record<string, unknown>,
-  running: false, insert: vi.fn(async () => ({ code: 0 })), cancel: vi.fn(), reset: vi.fn() }));
+  running: false, insert: vi.fn<(...args: unknown[]) => Promise<{ code: number; data: { operation_id: string; status: string } }>>(async () => ({ code: 0, data: { operation_id: "append", status: "staged" } })),
+  seal: vi.fn<(...args: unknown[]) => Promise<{ code: number; data: { status: string } }>>(async () => ({ code: 0, data: { status: "completed" } })),
+  status: vi.fn<(...args: unknown[]) => Promise<{ code: number; data: { status: string } }>>(async () => ({ code: 0, data: { status: "completed" } })), cancel: vi.fn(), reset: vi.fn() }));
 const runtime = { thread: { getState: () => ({ isRunning: state.running }), cancelRun: () => {
   if (!state.running) throw new Error("Empty thread rejects actions");
   state.cancel(); state.running = false;
@@ -21,7 +23,8 @@ vi.mock("@/components/user-memory", () => ({ UserMemory: ({ onNewUser }: { onNew
 vi.mock("@/api/models/memobase", () => ({ getProfile: async () => ({ code: 0, data: [] }),
   getEvent: async () => ({ code: 0, data: [] }), getPlaygroundMaintenance: async () => ({ code: 0, data: { pending_blob_count: 0, flushes: [] } }),
   initializePlaygroundUser: async () => ({ code: 0 }), deleteUser: async () => ({ code: 0 }),
-  insertMessages: (...args: unknown[]) => state.insert(...args as []),
+  insertMessages: (...args: unknown[]) => state.insert(...args), sealPlaygroundAppend: (...args: unknown[]) => state.seal(...args),
+  getPlaygroundAppendStatus: vi.fn(), getPlaygroundImportStatus: (...args: unknown[]) => state.status(...args),
 }));
 
 import Playground from "@/components/project/tabs/playground";
@@ -101,4 +104,31 @@ it("ignores a delayed completion from a superseded request", async () => {
  await options().onFinish(completed(oldRequest, "old-chain"));
  expect(options().body.chain_receipt).toBe("new-chain");
  expect(state.insert).not.toHaveBeenCalled();
+});
+
+it("seals successive turns in the same session in order without blocking chat", async () => {
+  const view = render(<Playground project={project} />);
+  await screen.findByRole("button", { name: "New test user" });
+  let release!: (value: { code: number; data: { status: string } }) => void;
+  state.seal.mockResolvedValueOnce({ code: 0, data: { status: "processing" } });
+  state.status.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const session = options().body.session_id;
+  const finish = (request: string, id: string) => options().onFinish({ id, role: "assistant", content: [{ type: "text", text: id }],
+    createdAt: new Date(), status: { type: "complete", reason: "stop" },
+    metadata: { unstable_annotations: [{ session_id: session, request_id: request, chain_receipt: `receipt-${id}` }] } });
+  const first = options().body.request_id;
+  const pendingFirst = finish(first, "first");
+  await waitFor(() => expect(state.seal).toHaveBeenCalledTimes(1));
+  const second = options().body.request_id;
+  const pendingSecond = finish(second, "second");
+  await waitFor(() => expect(state.insert).toHaveBeenCalledTimes(2));
+  expect(state.seal).toHaveBeenCalledTimes(1);
+  view.unmount();
+  await waitFor(() => expect(state.status).toHaveBeenCalledTimes(1), { timeout: 3500 });
+  release({ code: 0, data: { status: "completed" } });
+  await Promise.all([pendingFirst, pendingSecond]);
+  expect(state.insert).toHaveBeenCalledTimes(2);
+  expect(state.seal).toHaveBeenCalledTimes(2);
+  expect(state.insert.mock.calls[0][1]).toMatchObject({ sessionId: session, idempotencyKey: "first" });
+  expect(state.insert.mock.calls[1][1]).toMatchObject({ sessionId: session, idempotencyKey: "second" });
 });

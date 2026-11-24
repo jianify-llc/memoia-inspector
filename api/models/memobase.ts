@@ -12,17 +12,43 @@ export const ProfileEditor = z.object({ id: z.string(), content: z.string().min(
 export const getProfile = (): Promise<Res<UserProfile[]>> =>
   service.get("/api/memobase/profile");
 
+type PlaygroundReceipt = { sessionId: string; chainReceipt: string; idempotencyKey: string };
+
 export const insertMessages = (
   messages: {
     role: "user" | "assistant";
     content: string;
     alias?: string | undefined;
     created_at: string;
-  }[], idempotencyKey: string
+  }[], receipt: PlaygroundReceipt
 ): Promise<Res<Operation>> =>
   service.post("/api/memobase/insert", {
-    idempotency_key: idempotencyKey,
+    action: "append",
+    session_id: receipt.sessionId,
+    chain_receipt: receipt.chainReceipt,
+    idempotency_key: receipt.idempotencyKey,
     messages,
+  });
+
+export const getPlaygroundImportStatus = (receipt: PlaygroundReceipt, operationId: string, retry = false): Promise<Res<Operation>> =>
+  service.post("/api/memobase/insert", {
+    action: retry ? "retry" : "status",
+    session_id: receipt.sessionId,
+    chain_receipt: receipt.chainReceipt,
+    idempotency_key: receipt.idempotencyKey,
+    append_operation_id: operationId,
+  });
+
+export const getPlaygroundAppendStatus = (receipt: PlaygroundReceipt): Promise<Res<Operation>> =>
+  service.post("/api/memobase/insert", {
+    action: "append-status", session_id: receipt.sessionId,
+    chain_receipt: receipt.chainReceipt, idempotency_key: receipt.idempotencyKey,
+  });
+
+export const sealPlaygroundAppend = (receipt: PlaygroundReceipt, operationId: string): Promise<Res<Operation>> =>
+  service.post("/api/memobase/insert", {
+    action: "seal", session_id: receipt.sessionId, chain_receipt: receipt.chainReceipt,
+    idempotency_key: receipt.idempotencyKey, append_operation_id: operationId,
   });
 
 export const getEvent = (): Promise<Res<UserEvent[]>> =>

@@ -3,7 +3,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import type { Operation, Source, UpdateFact } from "@jianify/memoia";
-import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, updateFact, deleteFact, type UserProvenanceData } from "@/api/models/memoia";
+import { getOperation, getSource, getUserProvenance, PROVENANCE_PAGE_SIZE, deleteSourceMessages, retryOperation, sealStagedAppend, updateFact, deleteFact, type UserProvenanceData } from "@/api/models/memoia";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +34,7 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
   const [selected, setSelected] = useState<Source | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   const [confirm, setConfirm] = useState(false);
-  const [inputRequiredOperationId, setInputRequiredOperationId] = useState<string | null>(null);
+  const [receiptNotFound, setReceiptNotFound] = useState(false);
   const { busy, pendingKey, operation } = mutation;
   // The per-user mutation owner survives tab/sheet unmounts and late responses.
   const correction = mutation.correction ?? null;
@@ -65,7 +65,6 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
   const acceptOperation = (result: Operation) => {
     setOperation(result);
     if (result.status === "completed") {
-      setInputRequiredOperationId(null);
       setPendingKey(null);
       setSelected(null);
       setSelectedMessages([]);
@@ -120,7 +119,8 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
       const response = mode === "edit" ? await updateFact(userId, fact.fact_id, input as UpdateFact) : await deleteFact(userId, fact.fact_id, input);
       if (response.code !== 0 || !response.data) {
         const missingTarget = response.code === 404 && response.message === "fact_not_found";
-        if ([400, 401, 403, 415, 422].includes(response.code) || missingTarget) {
+        const staleRevision = response.code === 409 && response.message === "fact_revision_conflict";
+        if ([400, 401, 403, 410, 415, 422].includes(response.code) || missingTarget || staleRevision) {
           if (missingTarget) setCorrection(null);
           setPendingKey(null);
           onResolved();
@@ -135,10 +135,16 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
 
   const query = async () => {
     if (!pendingKey && !operation) return;
+    setReceiptNotFound(false);
     setBusy(true);
     try {
       const response = await getOperation(userId, pendingKey, operation?.operation_id);
-      if (response.code !== 0 || !response.data) { toast.error(response.message || t("failed")); return; }
+      if (response.code !== 0 || !response.data) {
+        setReceiptNotFound(response.code === 404 && response.message === "operation_not_found");
+        toast.error(response.message || t("failed"));
+        return;
+      }
+      setReceiptNotFound(false);
       acceptOperation(response.data);
     } catch { toast.error(t("failed")); }
     finally { setBusy(false); }
@@ -165,13 +171,30 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
     try {
       const response = await retryOperation(userId, known.operation_id);
       if (response.code !== 0 || !response.data) {
-        if (known.kind === "correct" && response.code === 409 && response.message === "input_required") {
-          setInputRequiredOperationId(known.operation_id);
-          toast.error(t("inputRequiredQuery"));
-        } else toast.error(response.message || t("failed"));
+        toast.error(response.message || t("failed"));
         return;
       }
-      setInputRequiredOperationId(null);
+      acceptOperation(response.data);
+    } catch { toast.error(t("unknown")); }
+    finally { setBusy(false); }
+  };
+
+  const seal = async (operationId: string) => {
+    setReceiptNotFound(false);
+    setPendingKey(`playground:fact:${operationId}`);
+    setOperation(null);
+    setBusy(true);
+    onInvalidate();
+    try {
+      const response = await sealStagedAppend(userId, operationId);
+      if (response.code !== 0 || !response.data) {
+        if ([400, 401, 403, 409, 410, 422].includes(response.code)) {
+          setPendingKey(null);
+          onResolved();
+        }
+        toast.error(response.message || t("failed"));
+        return;
+      }
       acceptOperation(response.data);
     } catch { toast.error(t("unknown")); }
     finally { setBusy(false); }
@@ -209,16 +232,31 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
             {operation?.kind === "correct" || pendingKey?.startsWith("inspector:correct-fact:") ? <p className="text-sm">{t("expiredCorrection")}</p> : null}
             <code className="block break-all text-xs">{pendingKey || operation?.operation_id}</code>
             <Button size="sm" disabled={busy} onClick={() => void query()}>{t("query")}</Button>
-            {operation && canResumeOperation(operation) ? (
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void recover()}>{t(operation.kind === "correct" && (operation.error?.code === "input_required" || inputRequiredOperationId === operation.operation_id) ? "recoverReplenished" : "recover")}</Button>
+            {receiptNotFound && pendingKey?.startsWith("playground:fact:") ? (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void seal(pendingKey.slice("playground:fact:".length))}>{t("sealAppend")}</Button>
             ) : null}
-            {operation?.kind === "correct" && operation.status === "failed" && !canResumeOperation(operation) && operation.error?.code !== "input_required" ? (
+            {receiptNotFound && !operation && (pendingKey?.startsWith("inspector:correct-fact:") || pendingKey?.startsWith("inspector:delete-messages:")) ? (
+              <div className="space-y-2">
+                <p className="text-sm">{t("missingReceiptHelp")}</p>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                  setReceiptNotFound(false);
+                  setPendingKey(null);
+                  setOperation(null);
+                  setRevision(value => value + 1);
+                  onResolved();
+                }}>{t("inspectCurrentState")}</Button>
+              </div>
+            ) : null}
+            {operation && canResumeOperation(operation) ? (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void recover()}>{t("recover")}</Button>
+            ) : null}
+            {operation?.status === "failed" ? (
               <Button size="sm" variant="outline" disabled={busy} onClick={() => {
                 setPendingKey(null);
                 setOperation(null);
                 setRevision(value => value + 1);
                 onResolved();
-              }}>{t("dismissRejectedCorrection")}</Button>
+              }}>{t(operation.kind === "correct" ? "dismissRejectedCorrection" : "dismissFailedOperation")}</Button>
             ) : null}
           </CardContent>
         </Card>
@@ -340,8 +378,12 @@ export function UserProvenance({ userId, mutation, setMutation, onInvalidate, on
                 <p className="break-all text-xs">{existing.operation_id}</p>
                 {existing.error ? <p>{existing.error.code}</p> : null}
                 {existing.kind === "correct" && existing.error?.code === "input_required" ? <p className="text-sm">{t("expiredCorrection")}</p> : null}
+                {existing.kind === "append" && existing.status === "staged" && existing.source_id &&
+                  /^playground:[a-f0-9-]{36}$/i.test(existing.source_id) && existing.blob_id === existing.source_id ? (
+                  <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void seal(existing.operation_id)}>{t("sealAppend")}</Button>
+                ) : null}
                 {canResumeOperation(existing) ? (
-                  <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void recover(existing)}>{t(existing.kind === "correct" && existing.error?.code === "input_required" ? "recoverReplenished" : "recover")}</Button>
+                  <Button variant="outline" size="sm" disabled={busy || unresolved} onClick={() => void recover(existing)}>{t("recover")}</Button>
                 ) : null}
               </CardContent>
             </Card>

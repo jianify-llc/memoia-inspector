@@ -75,6 +75,13 @@ describe("project and playground cookie ownership", () => {
     await expect(setLocale("https://memoia-online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 
+  it("rejects another environment in standalone mode when an origin is configured", async () => {
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://production.example");
+    await setLocale("https://production.example", "production-key");
+    await expect(setLocale("https://test.example", "test-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await getLocale()).toEqual(["https://production.example", "production-key"]);
+  });
+
   it("treats an old cross-environment cookie as disconnected everywhere", async () => {
     vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: vi.fn() } } } as never);
     vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://test.example");
@@ -86,6 +93,16 @@ describe("project and playground cookie ownership", () => {
     expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
     await expect(prepareMemoiaUser("new-user")).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
     await expect(getMemoiaUser()).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a stale standalone cookie when the fixed environment changes", async () => {
+    vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://production.example");
+    values.set("MEMOBASE_INSPECTOR_LOCALE", "https://test.example|old-key");
+    values.set("MEMOBASE_INSPECTOR_USER", "old-user");
+    const transport = vi.fn(); vi.stubGlobal("fetch", transport);
+    expect(await getLocale()).toEqual([]);
+    expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
     expect(transport).not.toHaveBeenCalled();
   });
 
