@@ -4,46 +4,95 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
+import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { AssistantSidebar } from "@/components/assistant-ui/assistant-sidebar";
 import { Thread } from "@/components/assistant-ui/thread";
 import { UserMemory } from "@/components/user-memory";
 
-import { UserProfile, UserEvent } from "@memobase/memobase";
+import { UserProfile, UserEvent } from "@/api/models/memobase";
 
 import {
-  flash,
   getProfile,
   getEvent,
+  getPlaygroundMaintenance,
   insertMessages,
   deleteUser,
+  initializePlaygroundUser,
 } from "@/api/models/memobase";
 
 import { toast } from "sonner";
 
 import { Project } from "@/types";
+import type { MaintenanceStatus } from "@jianify/memoia";
+import { retainReference } from "@/lib/playground-reference-client";
 
 export default function Playground({ project }: { project: Project }) {
   const t = useTranslations("project.playground");
   const [isLoading, setIsLoading] = useState(false);
+  // 相同挂载的重复初始化共用身份；项目切换或显式新用户才分配新 ID。
+  const initializationIdentity = useRef({ projectId: project.endpoint_url, id: crypto.randomUUID() });
+  if (initializationIdentity.current.projectId !== project.endpoint_url) {
+    initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
+  }
   const lastUserMessageRef = useRef<string>("");
+  const lastUserRecordedAt = useRef<string>("");
+  const references = useRef(new Map<string, string>());
+  const mounted = useRef(true);
+  const chain = useRef({ sessionId: crypto.randomUUID(), requestId: "", receipt: null as string | null,
+    project: project.endpoint_url, credential: project.endpoint_token });
+  if (chain.current.project !== project.endpoint_url || chain.current.credential !== project.endpoint_token) {
+    references.current = new Map();
+    chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null,
+      project: project.endpoint_url, credential: project.endpoint_token };
+  }
+  const chainSession = chain.current;
+  const referenceStore = references.current;
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [events, setEvents] = useState<UserEvent[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null);
+  const [playgroundAvailable, setPlaygroundAvailable] = useState<boolean | null>(null);
+  const chatApi = `${process.env["NEXT_PUBLIC_BASE_PATH"] || ""}/api/chat`;
 
-  const runtime = useChatRuntime({
-    api: `${process.env["NEXT_PUBLIC_BASE_PATH"] || ""}/api/chat`,
-    onResponse: (response) => {
-      if (response.status !== 200) {
+  const runtime = useDataStreamRuntime({
+    api: chatApi,
+    sendExtraMessageFields: true,
+    body: {
+      get reference_tokens() { return [...referenceStore.values()]; },
+      get session_id() { return chainSession.sessionId; },
+      get request_id() { chainSession.requestId = crypto.randomUUID(); return chainSession.requestId; },
+      get chain_receipt() { return chainSession.receipt; },
+    },
+    onCancel: () => { chainSession.requestId = ""; },
+    onResponse: async (response) => {
+      if (response.status === 409 && mounted.current && references.current === referenceStore) {
+        toast.error(t("retryPreviousTurn"));
+      }
+      if (response.status !== 200 || !mounted.current || references.current !== referenceStore ||
+        response.headers.get("x-playground-request") !== chainSession.requestId) {
         return;
       }
 
       const message = response.headers.get("x-last-user-message") || "";
       lastUserMessageRef.current = decodeURIComponent(message);
+      lastUserRecordedAt.current = response.headers.get("x-last-user-recorded-at") || "";
+      await retainReference(response, referenceStore);
     },
     onFinish: async (message) => {
-      if (!message.content || message.content.length === 0) {
+      if (!mounted.current || chain.current !== chainSession || references.current !== referenceStore) return;
+      if (message.role !== "assistant") return;
+      const status = message.status;
+      const completedAnswer = status?.type === "complete" && status.reason === "stop";
+      const toolTurn = status?.type === "requires-action" && status.reason === "tool-calls";
+      if (!completedAnswer && !toolTurn) return;
+      const receipt = message.metadata?.unstable_annotations?.findLast(value => value && typeof value === "object" &&
+        "chain_receipt" in value && "request_id" in value && value.request_id === chainSession.requestId &&
+        "session_id" in value && value.session_id === chainSession.sessionId);
+      if (!receipt || typeof receipt !== "object" || !("chain_receipt" in receipt) || typeof receipt.chain_receipt !== "string") return;
+      // Only the current completed request may advance the page chain, including a tool-only step.
+      chainSession.receipt = receipt.chain_receipt;
+      if (!completedAnswer || message.content.length === 0) {
         return;
       }
 
@@ -54,30 +103,35 @@ export default function Playground({ project }: { project: Project }) {
             {
               role: "user",
               content: lastUserMessageRef.current,
+              created_at: lastUserRecordedAt.current,
             },
             {
               role: "assistant",
               content: lastContent.text,
+              created_at: message.createdAt.toISOString(),
             },
-          ]);
+          ], message.id);
           if (res.code !== 0) {
             toast.error(res.message || t("insertRecordsFailed"));
             return;
           }
 
-          const flashRes = await flash();
-          if (flashRes.code === 0) {
-            await fetchProfile();
-            await fetchEvent();
-          } else {
-            toast.error(flashRes.message || t("flashRecordsFailed"));
-          }
+          await refreshMemories();
         } catch {
           toast.error(t("insertRecordsFailed"));
         }
       }
     },
   });
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // The SDK's empty placeholder thread rejects actions, including cancellation.
+      if (runtime.thread.getState().isRunning) runtime.thread.cancelRun();
+    };
+  }, [runtime]);
 
   const fetchProfile = useCallback(async () => {
     setIsLoading(true);
@@ -117,14 +171,60 @@ export default function Playground({ project }: { project: Project }) {
     }
   }, [t]);
 
+  const refreshMemories = useCallback(async () => {
+    // Fact 回执后只刷新派生状态；维护失败不重新提交消息。
+    await Promise.all([fetchProfile(), fetchEvent()]);
+    try {
+      const result = await getPlaygroundMaintenance();
+      if (result.code !== 0 || !result.data) {
+        setMaintenance(null);
+        toast.error(result.message || t("getRecordsFailed"));
+        return;
+      }
+      setMaintenance(result.data);
+    } catch {
+      setMaintenance(null);
+      toast.error(t("getRecordsFailed"));
+    }
+  }, [fetchProfile, fetchEvent, t]);
+
   useEffect(() => {
-    if (!project) return;
+    let active = true;
+    fetch(chatApi, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const data: { enabled?: boolean } = await response.json();
+        return data.enabled === true;
+      })
+      .catch(() => false)
+      .then((enabled) => {
+        if (active) setPlaygroundAvailable(enabled);
+      });
+    return () => { active = false; };
+  }, [chatApi]);
+
+  useEffect(() => {
+    if (!project || !playgroundAvailable) return;
     const init = async () => {
-      await fetchProfile();
-      await fetchEvent();
+      const result = await initializePlaygroundUser(initializationIdentity.current.id);
+      if (result.code !== 0) {
+        toast.error(result.message === "OUTCOME_UNKNOWN" ? t("getRecordsFailed") : result.message || t("getRecordsFailed"));
+        return;
+      }
+      await refreshMemories();
     };
-    init();
-  }, [fetchProfile, fetchEvent, project]);
+    init().catch(() => toast.error(t("getRecordsFailed")));
+  }, [refreshMemories, playgroundAvailable, project, t]);
+
+  if (playgroundAvailable !== true) {
+    return (
+      <Card>
+        <CardContent role="status">
+          {playgroundAvailable === null ? t("checking") : t("notConfigured")}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="py-0 overflow-hidden">
@@ -136,18 +236,31 @@ export default function Playground({ project }: { project: Project }) {
               setIsLoading={setIsLoading}
               events={events}
               profiles={profiles}
+              maintenance={maintenance}
               onRefresh={async () => {
-                await fetchProfile();
-                await fetchEvent();
+                await refreshMemories();
               }}
               onNewUser={async () => {
+                if (runtime.thread.getState().isRunning) runtime.thread.cancelRun();
                 const result = await deleteUser();
                 if (result.code !== 0) {
                   toast.error(result.message || t("getRecordsFailed"));
                   return;
                 }
-                await fetchProfile();
-                await fetchEvent();
+                setProfiles([]);
+                setEvents([]);
+                setMaintenance(null);
+                references.current = new Map();
+                chain.current = { sessionId: crypto.randomUUID(), requestId: "", receipt: null,
+                  project: project.endpoint_url, credential: project.endpoint_token };
+                runtime.thread.import({ messages: [] });
+                initializationIdentity.current = { projectId: project.endpoint_url, id: crypto.randomUUID() };
+                const initialized = await initializePlaygroundUser(initializationIdentity.current.id);
+                if (initialized.code !== 0) {
+                  toast.error(initialized.message || t("getRecordsFailed"));
+                  return;
+                }
+                await refreshMemories();
               }}
               canAdd
               canEdit

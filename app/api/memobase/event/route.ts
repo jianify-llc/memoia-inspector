@@ -1,16 +1,16 @@
+import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient, getMemobaseUser } from "@/utils/memobase/client";
+import { memoiaClient, getMemoiaUser } from "@/utils/memoia/client";
 
 export async function GET() {
   try {
-    const user = await (await memoBaseClient()).getOrCreateUser(await getMemobaseUser());
-    const event = await user.event();
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    const { events: event } = await client.getEvents(await getMemoiaUser());
 
     return createApiResponse(event, "获取记录成功");
   } catch (error: unknown) {
-    const errorMessage =
-      error instanceof Error ? error.message : "获取记录失败";
-    return createApiError(errorMessage, 500);
+    return memoiaApiError(error);
   }
 }

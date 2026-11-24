@@ -29,7 +29,7 @@ export default function Config({
   onRefresh,
 }: {
   project: Project;
-  onRefresh: () => void;
+  onRefresh: () => Promise<void>;
 }) {
   const { theme } = useTheme();
   const t = useTranslations("project.config");
@@ -37,22 +37,28 @@ export default function Config({
 
   const [loading, setLoading] = useState(false);
   const [defaultConfigYaml, setDefaultConfigYaml] = useState(
-    project?.config_yaml || "# Memobase Project Config"
+    project?.config_yaml || "# Memoia project configuration"
   );
   const [yamlError, setYamlError] = useState<string | null>(null);
 
   const handleUpdate = async () => {
     setLoading(true);
+    let saved = false;
     try {
       const res = await updateConfig(defaultConfigYaml);
       if (res.code === 0) {
-        onRefresh();
+        saved = true;
+        await onRefresh();
         toast.success(t("updateSuccess"));
       } else {
         toast.error(res.message || t("updateFailed"));
       }
     } catch {
-      toast.error(t("updateFailed"));
+      if (saved) {
+        toast.warning(t("updateSavedRefreshFailed"));
+      } else {
+        toast.error(t("updateFailed"));
+      }
     } finally {
       setLoading(false);
     }
@@ -71,7 +77,7 @@ export default function Config({
             <Label>
               {t("advanced.config")}
               <Link
-                href="https://docs.memobase.io/references/full"
+                href="https://github.com/jianify-llc/memoia/blob/main/docs/api.md"
                 target="_blank"
               >
                 <Badge
@@ -79,18 +85,6 @@ export default function Config({
                   className="bg-blue-500 text-white dark:bg-blue-600"
                 >
                   {t("advanced.docs")}
-                  <ArrowUpRight />
-                </Badge>
-              </Link>
-              <Link
-                href="https://app.memobase.io/playground/config-tool"
-                target="_blank"
-              >
-                <Badge
-                  variant="secondary"
-                  className="bg-blue-500 text-white dark:bg-blue-600"
-                >
-                  {t("advanced.tool")}
                   <ArrowUpRight />
                 </Badge>
               </Link>

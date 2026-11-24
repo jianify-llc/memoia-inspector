@@ -1,6 +1,9 @@
+import { memoiaApiError } from "@/lib/memoia-api-response";
 import { createApiResponse, createApiError } from "@/lib/api-response";
 
-import { memoBaseClient } from "@/utils/memobase/client";
+import { memoiaClient } from "@/utils/memoia/client";
+import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
+import { readJsonObject } from "@/lib/json-body";
 
 /**
  * 获取项目配置
@@ -8,12 +11,13 @@ import { memoBaseClient } from "@/utils/memobase/client";
  */
 export async function GET() {
   try {
-    const config = await (await memoBaseClient()).getConfig()
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    const { profile_config: config } = await client.getConfig();
 
     return createApiResponse(config);
   } catch (error) {
-    console.error(error);
-    return createApiError("Internal Server Error", 500);
+    return memoiaApiError(error);
   }
 }
 
@@ -21,19 +25,21 @@ export async function GET() {
  * 更新项目配置
  */
 export async function PUT(req: Request) {
-  const { config } = await req.json();
+  const originError = rejectCrossOriginMutation(req);
+  if (originError) return originError;
+  const body = await readJsonObject(req);
+  if (body.error) return body.error;
+  const { config } = body.data;
   if (!config) {
     return createApiError("参数错误", 400);
   }
 
   try {
-    const updated = await (await memoBaseClient()).updateConfig(config)
-    if (!updated) {
-      return createApiError("更新失败：Memoia 未接受配置", 502);
-    }
+    const client = await memoiaClient();
+    if (!client) return createApiError("Unauthorized", 401);
+    await client.updateConfig({ profile_config: config });
   } catch (e) {
-    console.error(e);
-    return createApiError("Internal Server Error", 500);
+    return memoiaApiError(e);
   }
 
   return createApiResponse();
