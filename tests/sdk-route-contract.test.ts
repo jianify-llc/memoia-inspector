@@ -8,7 +8,6 @@ vi.mock("@/utils/memoia/client", async () => {
   return {
     memoiaClient: async () => new MemoiaClient({ baseUrl: "https://contract.invalid", apiKey: "fixture-only", fetch: transport, maxAttempts: 2 }),
     getMemoiaUser: async () => "11111111-1111-4111-8111-111111111111",
-    getLocale: async () => ["https://contract.invalid", "fixture-only"],
   };
 });
 import { GET as source } from "@/app/api/memoia/user/[uid]/sources/[source_id]/route";
@@ -254,3 +253,5 @@ it("rejects malformed maintenance progress and never fabricates an up-to-date st
   expect(response.status).toBe(502);
   expect((await response.json()).data).toBeNull();
 });
+
+vi.mock("@/utils/memoia/project-credentials", () => ({ getPlaygroundSigningKey: async () => "fixture-only" }));

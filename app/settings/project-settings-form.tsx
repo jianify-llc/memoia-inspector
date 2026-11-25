@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
 import { toast } from "sonner";
-import { setLocale } from "@/utils/memoia/client";
+import { saveProject } from "@/utils/memoia/project-actions";
 
 export default function ProjectSettingsForm({ managed, hasWorker, defaultUrl }: {
   managed: boolean;
@@ -34,7 +34,7 @@ export default function ProjectSettingsForm({ managed, hasWorker, defaultUrl }: 
 
     setLoading(true);
     try {
-      await setLocale(endpoint, key);
+      await saveProject(endpoint, key);
       router.push("/");
     } catch {
       toast.error(t("errorMsg"));

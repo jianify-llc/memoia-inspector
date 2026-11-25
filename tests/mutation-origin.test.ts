@@ -1,3 +1,4 @@
+vi.mock("@/utils/memoia/project-credentials", () => ({ getPlaygroundSigningKey: async () => "fixture" }));
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -5,7 +6,7 @@ import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { readJsonObject } from "@/lib/json-body";
 
 const factory = vi.hoisted(() => ({ client: vi.fn(), user: vi.fn() }));
-vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client, getMemoiaUser: factory.user, getLocale: async () => ["https://memoia.example", "fixture"], clearMemoiaUser: vi.fn() }));
+vi.mock("@/utils/memoia/client", () => ({ memoiaClient: factory.client, getMemoiaUser: factory.user, clearMemoiaUser: vi.fn() }));
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 const request = (headers: Record<string, string> = {}, body?: string) => new Request("https://inspector.example/api", {

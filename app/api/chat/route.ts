@@ -1,8 +1,10 @@
+import { MemoiaError } from "@jianify/memoia";
+import { getPlaygroundSigningKey } from "@/utils/memoia/project-credentials";
 import { playgroundClient } from "@/lib/openai";
 import { playgroundHistory, playgroundTools, playgroundInput,
   playgroundStream, playgroundCacheKey, supportsPromptCache } from "@/lib/playground-responses";
 
-import { memoiaClient, getMemoiaUser, getLocale } from "@/utils/memoia/client";
+import { memoiaClient, getMemoiaUser } from "@/utils/memoia/client";
 import { verifyReferences, signReference } from "@/lib/playground-reference";
 import { chainInput, readChain, prepareChain, signChain } from "@/lib/playground-chain";
 import { messageFingerprint } from "@/lib/playground-reference";
@@ -43,12 +45,12 @@ export async function POST(req: Request) {
     const client = await memoiaClient();
     if (!client) return new Response("Unauthorized", { status: 401 });
     const uid = await getMemoiaUser();
-    const [project, , locale] = await Promise.all([client.getProjectIdentity(), client.getUser(uid), getLocale()]);
+    const [project, , signingKey] = await Promise.all([client.getProjectIdentity(), client.getUser(uid), getPlaygroundSigningKey()]);
     // Project scope comes from the authenticated Memoia receipt, never browser fields or URL alone.
     if (!project.project_id) return new Response("Unauthorized", { status: 401 });
     let references;
     try {
-      references = verifyReferences(reference_tokens, locale[1], project.project_id, uid);
+      references = verifyReferences(reference_tokens, signingKey, project.project_id, uid);
       for (const user of history.users) {
         const reference = references.get(user.id);
         if (!reference && user !== history.users.at(-1)) {
@@ -68,14 +70,14 @@ export async function POST(req: Request) {
         profiles: profileResult.profiles.map(p => `${p.topic}::${p.sub_topic}: ${p.content}`).join("\n"), memories: eventResult.context };
       references.set(last.id, reference);
     }
-    const referenceToken = signReference(reference, locale[1]);
+    const referenceToken = signReference(reference, signingKey);
 
     const model = process.env.OPENAI_MODEL;
     if (!model) return new Response("Playground model is not configured", { status: 503 });
     const cache = supportsPromptCache(model);
     const scope = { projectId: project.project_id, userId: uid, sessionId: session_id };
     let receipt;
-    try { receipt = readChain(chain_receipt, locale[1], scope); }
+    try { receipt = readChain(chain_receipt, signingKey, scope); }
     catch { return new Response("Invalid chain receipt", { status: 400 }); }
     const full = chainInput(playgroundInput(history, references, cache));
     const contextHash = messageFingerprint([model, modelTools, full[0]]);
@@ -86,9 +88,11 @@ export async function POST(req: Request) {
         prompt_cache_key: playgroundCacheKey(project.project_id, uid, session_id) } : {}) }, { signal: AbortSignal.any([req.signal, signal]) }),
       { "x-last-user-message": encodeURIComponent(history.lastText),
       "x-last-user-recorded-at": reference.recordedAt, "x-playground-request": request_id }, { message_id: last.id, memoia_reference: referenceToken },
-      (response) => ({ session_id, request_id, chain_receipt: signChain(scope, response.id, contextHash, full, response.output, locale[1]) }));
+      (response) => ({ session_id, request_id, chain_receipt: signChain(scope, response.id, contextHash, full, response.output, signingKey) }));
   } catch (error) {
-    void error;
+    if (error instanceof MemoiaError && error.code === "ACCESS_REQUIRED") {
+      return new Response("Unauthorized", { status: 401 });
+    }
     return new Response("Internal Server Error", { status: 500 });
   }
 }

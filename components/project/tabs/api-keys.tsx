@@ -30,39 +30,41 @@ export default function ApiKeys({ project }: { project: Project }) {
           </p>
         </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="flex justify-center items-center text-sm font-medium">
-              {"KEY"}
-              <Link
-                className="flex justify-center items-center text-sm text-muted-foreground hover:text-primary underline ml-2 group/item"
-                href="https://github.com/jianify-llc/memoia/tree/main/sdks/typescript"
-                target="_blank"
-              >
-                {t("keyTips")}
-                <ArrowUpRight className="h-4 w-4 opacity-50 group-hover/item:opacity-100" />
-              </Link>
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setShowToken(!showToken)}
-                className="h-8 w-8"
-              >
-                {showToken ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </Button>
-              <CopyButton textToCopy={project?.endpoint_token || ""} />
+        {project.endpoint_token && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="flex justify-center items-center text-sm font-medium">
+                {"KEY"}
+                <Link
+                  className="flex justify-center items-center text-sm text-muted-foreground hover:text-primary underline ml-2 group/item"
+                  href="https://github.com/jianify-llc/memoia/tree/main/sdks/typescript"
+                  target="_blank"
+                >
+                  {t("keyTips")}
+                  <ArrowUpRight className="h-4 w-4 opacity-50 group-hover/item:opacity-100" />
+                </Link>
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowToken(!showToken)}
+                  className="h-8 w-8"
+                >
+                  {showToken ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+                <CopyButton textToCopy={project?.endpoint_token || ""} />
+              </div>
             </div>
+            <p className="text-sm bg-muted/50 p-2 rounded-md font-mono">
+              {showToken ? project?.endpoint_token : "••••••••••••••••"}
+            </p>
           </div>
-          <p className="text-sm bg-muted/50 p-2 rounded-md font-mono">
-            {showToken ? project?.endpoint_token : "••••••••••••••••"}
-          </p>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

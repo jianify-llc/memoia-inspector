@@ -6,6 +6,7 @@ import { getLocale, getMessages } from "next-intl/server";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { hasManagedProject } from "@/utils/memoia/project-credentials";
 import CommonLayout from "@/components/common-layout";
 
 import { GoogleAnalytics, GoogleTagManager } from "@next/third-parties/google";
@@ -38,7 +39,7 @@ export default async function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <CommonLayout>{children}</CommonLayout>
+            <CommonLayout managedProject={hasManagedProject()}>{children}</CommonLayout>
             <Toaster />
           </ThemeProvider>
         </NextIntlClientProvider>

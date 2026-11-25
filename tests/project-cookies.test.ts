@@ -1,14 +1,18 @@
+import { readProject as getProjectContext, clearProject as clearLocale, saveProject as setLocale } from "@/utils/memoia/project-actions";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { GET as getUsage } from "@/app/api/memobase/usage/route";
 import { GET as getUsers, POST } from "@/app/api/memobase/user/route";
 import { GET as getUserMemories, POST as manageUserMemory } from "@/app/api/memobase/user/[uid]/memories/route";
 import { DELETE as forgetProjectUser } from "@/app/api/memobase/user/[uid]/route";
 import { POST as deleteSourceMessages } from "@/app/api/memoia/user/[uid]/sources/[source_id]/messages/delete/route";
-import { memoiaClient, clearLocale, getLocale, getMemoiaUser, setLocale, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
+import { memoiaClient, getMemoiaUser, prepareMemoiaUser, initializeMemoiaUser } from "@/utils/memoia/client";
 
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+import { projectCredentials } from "@/utils/memoia/project-credentials";
+
+vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn() }));
 
 const values = new Map<string, string>();
@@ -116,7 +120,7 @@ describe("project and playground cookie ownership", () => {
     await setLocale("worker", "test-key");
     values.set("MEMOBASE_INSPECTOR_USER", "existing-user");
     await expect(setLocale("https://online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    expect(await getLocale()).toEqual(["worker", "test-key"]);
+    expect(await projectCredentials()).toEqual({ endpoint: "worker", key: "test-key" });
     expect(await getMemoiaUser()).toBe("existing-user");
   });
 
@@ -124,7 +128,7 @@ describe("project and playground cookie ownership", () => {
     vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: vi.fn() } } } as never);
     vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://memoia-test.example");
     await setLocale("https://memoia-test.example/", "test-key");
-    expect(await getLocale()).toEqual(["https://memoia-test.example", "test-key"]);
+    expect(await projectCredentials()).toEqual({ endpoint: "https://memoia-test.example", key: "test-key" });
     await expect(setLocale("https://memoia-online.example", "online-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 
@@ -132,7 +136,7 @@ describe("project and playground cookie ownership", () => {
     vi.stubEnv("MEMOIA_HTTP_ORIGIN", "https://production.example");
     await setLocale("https://production.example", "production-key");
     await expect(setLocale("https://test.example", "test-key")).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    expect(await getLocale()).toEqual(["https://production.example", "production-key"]);
+    expect(await projectCredentials()).toEqual({ endpoint: "https://production.example", key: "production-key" });
   });
 
   it("treats an old cross-environment cookie as disconnected everywhere", async () => {
@@ -142,7 +146,7 @@ describe("project and playground cookie ownership", () => {
     values.set("MEMOIA_INSPECTOR_CONNECTION", "https://online.example|other-key");
     values.set("MEMOBASE_INSPECTOR_USER", "old-user");
     const transport = vi.fn(); vi.stubGlobal("fetch", transport);
-    expect(await getLocale()).toEqual([]);
+    expect(await projectCredentials()).toBeNull();
     expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
     await expect(prepareMemoiaUser("new-user")).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
     await expect(getMemoiaUser()).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
@@ -154,7 +158,7 @@ describe("project and playground cookie ownership", () => {
     values.set("MEMOBASE_INSPECTOR_LOCALE", "https://test.example|old-key");
     values.set("MEMOBASE_INSPECTOR_USER", "old-user");
     const transport = vi.fn(); vi.stubGlobal("fetch", transport);
-    expect(await getLocale()).toEqual([]);
+    expect(await projectCredentials()).toBeNull();
     expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
     expect(transport).not.toHaveBeenCalled();
   });
@@ -262,4 +266,72 @@ it("keeps the SDK write budget for a normal operation lasting more than ten seco
   await vi.advanceTimersByTimeAsync(15_000);
   await result;
   expect(transport).toHaveBeenCalledTimes(1);
+});
+
+describe("Access-managed project", () => {
+  const issuer = "https://inspector-fixtures.cloudflareaccess.com";
+  const audience = "inspector-test";
+  const fixtureKey = "mka_fixture";
+  let assertion: (options?: { audience?: string; expires?: number; subject?: string }) => Promise<string>;
+  const bindingFetch = vi.fn();
+
+  beforeEach(async () => {
+    const { privateKey, publicKey } = await generateKeyPair("RS256");
+    const jwk = { ...await exportJWK(publicKey), kid: "fixture", alg: "RS256" };
+    assertion = (options = {}) => new SignJWT({ email: "operator@example.invalid", type: "app" })
+      .setProtectedHeader({ alg: "RS256", kid: "fixture" })
+      .setIssuer(issuer).setAudience(options.audience ?? audience)
+      .setSubject(options.subject ?? "first-operator").setExpirationTime(options.expires ?? "5m")
+      .sign(privateKey);
+    vi.stubEnv("MEMOIA_PROJECT_KEY", fixtureKey);
+    vi.stubEnv("INSPECTOR_ACCESS_ISSUER", issuer);
+    vi.stubEnv("INSPECTOR_ACCESS_AUDIENCE", audience);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ keys: [jwk] })));
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: bindingFetch } } } as never);
+    bindingFetch.mockReset().mockImplementation(async () => Response.json({ project_id: "project-a" }));
+    vi.mocked(headers).mockResolvedValue(new Headers() as never);
+  });
+
+  it("fails closed without an Access assertion or Service Binding, even with a project cookie", async () => {
+    values.set("MEMOIA_INSPECTOR_CONNECTION", "worker|manual-key");
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
+    expect((await getUsage(new Request("https://inspector.example/api/memobase/usage"))).status).toBe(401);
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: {} } as never);
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 503 });
+    vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: bindingFetch } } } as never);
+    vi.stubEnv("MEMOIA_PROJECT_KEY", "management-token-fixture");
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 503 });
+    expect(bindingFetch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("verifies operator, audience and expiry and never returns the managed key", async () => {
+    const setAssertion = (jwt: string) => vi.mocked(headers).mockResolvedValue(new Headers({ "cf-access-jwt-assertion": jwt }) as never);
+    setAssertion(await assertion({ audience: "another-inspector" }));
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
+    setAssertion(await assertion({ expires: 1 }));
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
+    expect(bindingFetch).not.toHaveBeenCalled();
+
+    const valid = await assertion();
+    const [header, claims, signature] = valid.split(".");
+    const wrongFirstCharacter = signature[0] === "A" ? "B" : "A";
+    setAssertion([header, claims, wrongFirstCharacter + signature.slice(1)].join("."));
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
+    expect(bindingFetch).not.toHaveBeenCalled();
+    setAssertion(valid);
+    values.set("MEMOIA_INSPECTOR_CONNECTION", "worker|manual-key");
+    values.set("MEMOBASE_INSPECTOR_USER", "old-manual-user");
+    await expect(getProjectContext()).resolves.toEqual({ endpoint: "worker", projectId: "project-a", token: "" });
+    expect(bindingFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = bindingFetch.mock.calls[0];
+    expect(new Headers(init?.headers ?? input.headers).get("authorization")).toBe("Bearer " + fixtureKey);
+    await expect(setLocale("worker", "manual-key")).rejects.toMatchObject({ status: 409 });
+
+    await expect(getMemoiaUser()).rejects.toMatchObject({ code: "USER_NOT_INITIALIZED" });
+    await expect(prepareMemoiaUser("first-user")).resolves.toBe("first-user");
+    await expect(getMemoiaUser()).resolves.toBe("first-user");
+    setAssertion(await assertion({ subject: "second-operator" }));
+    await expect(getMemoiaUser()).rejects.toMatchObject({ code: "USER_NOT_INITIALIZED" });
+  });
 });

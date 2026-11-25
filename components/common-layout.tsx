@@ -11,12 +11,14 @@ import { LangSwitch } from "@/components/lang-switch";
 
 export default function RootLayout({
   children,
+  managedProject,
 }: Readonly<{
   children: React.ReactNode;
+  managedProject: boolean;
 }>) {
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar managedProject={managedProject} />
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-2 border-b">
           <div className="flex-1 flex items-center gap-2 px-3">

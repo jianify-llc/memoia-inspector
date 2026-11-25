@@ -26,7 +26,7 @@ const resources = [
   { label: "docs", href: "https://github.com/jianify-llc/memoia/blob/main/docs/api.md", icon: BookText },
 ] as const;
 
-export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ managedProject, ...props }: ComponentProps<typeof Sidebar> & { managedProject: boolean }) {
   const t = useTranslations("navigation");
 
   return (
@@ -56,10 +56,14 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
         </Suspense>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem><ProjectSwitch /></SidebarMenuItem>
-        </SidebarMenu>
-        <SidebarSeparator />
+        {!managedProject && (
+          <>
+            <SidebarMenu>
+              <SidebarMenuItem><ProjectSwitch /></SidebarMenuItem>
+            </SidebarMenu>
+            <SidebarSeparator />
+          </>
+        )}
         <SidebarMenu>
           {resources.map((item) => (
             <SidebarMenuItem key={item.label}>

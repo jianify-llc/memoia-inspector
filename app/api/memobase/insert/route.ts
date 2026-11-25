@@ -1,6 +1,7 @@
+import { getPlaygroundSigningKey } from "@/utils/memoia/project-credentials";
 import { MemoiaError, type Operation } from "@jianify/memoia";
 import { createApiResponse, createApiError } from "@/lib/api-response";
-import { memoiaClient, getLocale, getMemoiaUser } from "@/utils/memoia/client";
+import { memoiaClient, getMemoiaUser } from "@/utils/memoia/client";
 import { rejectCrossOriginMutation } from "@/lib/mutation-origin";
 import { memoiaApiError } from "@/lib/memoia-api-response";
 import { readJsonObject } from "@/lib/json-body";
@@ -20,9 +21,9 @@ export async function POST(req: Request) {
     const client = await memoiaClient();
     if (!client) return createApiError("Unauthorized", 401);
     const uid = await getMemoiaUser();
-    const [project, locale] = await Promise.all([client.getProjectIdentity(), getLocale()]);
+    const [project, signingKey] = await Promise.all([client.getProjectIdentity(), getPlaygroundSigningKey()]);
     try {
-      if (!readChain(chain_receipt, locale[1], { projectId: project.project_id, userId: uid, sessionId: session_id })) {
+      if (!readChain(chain_receipt, signingKey, { projectId: project.project_id, userId: uid, sessionId: session_id })) {
         return createApiError("Invalid Playground receipt", 409);
       }
     } catch { return createApiError("Playground user or project changed", 409); }

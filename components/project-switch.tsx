@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { ArrowLeftRight } from "lucide-react";
 
 import { SidebarMenuButton, useSidebar } from "@/components/ui/sidebar";
-import { clearLocale } from "@/utils/memoia/client";
+import { clearProject } from "@/utils/memoia/project-actions";
 
 export function ProjectSwitch() {
   const router = useRouter();
@@ -18,7 +18,7 @@ export function ProjectSwitch() {
       type="button"
       tooltip={title}
       onClick={async () => {
-        await clearLocale();
+        await clearProject();
         setOpenMobile(false);
         router.push("/settings");
       }}
