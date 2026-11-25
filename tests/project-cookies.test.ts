@@ -272,13 +272,13 @@ describe("Access-managed project", () => {
   const issuer = "https://inspector-fixtures.cloudflareaccess.com";
   const audience = "inspector-test";
   const fixtureKey = "mka_fixture";
-  let assertion: (options?: { audience?: string; expires?: number; subject?: string }) => Promise<string>;
+  let assertion: (options?: { audience?: string; expires?: number; subject?: string; email?: string }) => Promise<string>;
   const bindingFetch = vi.fn();
 
   beforeEach(async () => {
     const { privateKey, publicKey } = await generateKeyPair("RS256");
     const jwk = { ...await exportJWK(publicKey), kid: "fixture", alg: "RS256" };
-    assertion = (options = {}) => new SignJWT({ email: "operator@example.invalid", type: "app" })
+    assertion = (options = {}) => new SignJWT({ email: options.email ?? "operator@example.invalid", type: "app" })
       .setProtectedHeader({ alg: "RS256", kid: "fixture" })
       .setIssuer(issuer).setAudience(options.audience ?? audience)
       .setSubject(options.subject ?? "first-operator").setExpirationTime(options.expires ?? "5m")
@@ -286,6 +286,7 @@ describe("Access-managed project", () => {
     vi.stubEnv("MEMOIA_PROJECT_KEY", fixtureKey);
     vi.stubEnv("INSPECTOR_ACCESS_ISSUER", issuer);
     vi.stubEnv("INSPECTOR_ACCESS_AUDIENCE", audience);
+    vi.stubEnv("INSPECTOR_ACCESS_OPERATOR_EMAIL", "operator@example.invalid");
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ keys: [jwk] })));
     vi.mocked(getCloudflareContext).mockReturnValue({ env: { MEMOIA: { fetch: bindingFetch } } } as never);
     bindingFetch.mockReset().mockImplementation(async () => Response.json({ project_id: "project-a" }));
@@ -308,6 +309,8 @@ describe("Access-managed project", () => {
   it("verifies operator, audience and expiry and never returns the managed key", async () => {
     const setAssertion = (jwt: string) => vi.mocked(headers).mockResolvedValue(new Headers({ "cf-access-jwt-assertion": jwt }) as never);
     setAssertion(await assertion({ audience: "another-inspector" }));
+    await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
+    setAssertion(await assertion({ email: "signed-but-not-authorized@example.invalid" }));
     await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
     setAssertion(await assertion({ expires: 1 }));
     await expect(getProjectContext()).rejects.toMatchObject({ status: 401 });
